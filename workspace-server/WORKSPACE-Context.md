@@ -131,31 +131,6 @@ When asked about "next meeting" or "today's schedule":
 - Convert all times appropriately before display
 - Include timezone abbreviation (EST, PST, etc.) for clarity
 
-## 💬 Chat Guidelines
-
-Google Chat uses a specific subset of Markdown. Ensure messages sent to Chat use
-the syntax supported by Chat, and convert any unsupported syntax to a supported
-syntax.
-
-### Supported Formatting
-
-- _bold_ (single asterisks)
-- _italic_ (single underscores)
-- ~strikethrough~
-- `inline code`
-- `code blocks`
-- Bulleted lists ("\* " or "- " at line start)
-- Links: <url|text>
-- User mentions: <users/{user}>
-
-### Unsupported (convert these)
-
-- **double asterisks** for bold (convert to _single asterisks_)
-- [text](url) markdown links (convert to <url|text>)
-- Nested lists (flatten with dashes: "- parent", "- -- child")
-- # headings (convert to _bold_ text)
-- > blockquotes (preserve the `>` characters, do not remove them)
-
 ## 📄 Docs, Sheets, and Slides
 
 ### Format Selection (Sheets)
@@ -275,9 +250,8 @@ Choose output format based on use case:
 
 ### Google Chat
 
-- Space vs. DM distinction
-- Thread-aware messaging
-- Unread message filtering
+- See the **Chat skill** for detailed guidance on formatting messages, spaces
+  vs. DMs, threading, unread filtering, and space management.
 
 Remember: This guide focuses on **how to think** about using these tools
 effectively. For specific parameter details, refer to the tool descriptions
