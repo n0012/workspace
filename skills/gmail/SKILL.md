@@ -1,5 +1,5 @@
 ---
-name: google-gmail
+name: gmail
 description: >
   CRITICAL: You MUST activate this skill BEFORE composing, sending, drafting, or
   searching emails. Always trigger this skill as the first step when the user

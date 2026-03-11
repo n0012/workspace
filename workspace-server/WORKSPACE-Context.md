@@ -192,8 +192,8 @@ filter rather than searching by name alone. Example MIME type queries:
 
 ### Gmail
 
-- See the **Google Gmail skill** for detailed guidance on composing rich HTML
-  emails, search syntax, label management, attachments, and threading.
+- See the **Gmail skill** for detailed guidance on composing rich HTML emails,
+  search syntax, label management, attachments, and threading.
 
 ### Google Chat
 
