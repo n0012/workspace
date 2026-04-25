@@ -280,6 +280,472 @@ export class SlidesService {
     }
   };
 
+  public create = async ({ title }: { title: string }) => {
+    logToFile(`[SlidesService] Creating new presentation: ${title}`);
+    try {
+      const slides = await this.getSlidesClient();
+      const response = await slides.presentations.create({
+        requestBody: { title },
+      });
+
+      const presId = response.data.presentationId!;
+      logToFile(
+        `[SlidesService] Created presentation: ${presId}`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              presentationId: presId,
+              title: response.data.title,
+              url: `https://docs.google.com/presentation/d/${presId}/edit`,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logToFile(
+        `[SlidesService] Error during slides.create: ${errorMessage}`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ error: errorMessage }),
+          },
+        ],
+      };
+    }
+  };
+
+  public batchUpdate = async ({
+    presentationId,
+    requests: rawRequests,
+  }: {
+    presentationId: string;
+    requests: string | slides_v1.Schema$Request[];
+  }) => {
+    const requests: slides_v1.Schema$Request[] =
+      typeof rawRequests === 'string' ? JSON.parse(rawRequests) : rawRequests;
+    logToFile(
+      `[SlidesService] Starting batchUpdate for presentation: ${presentationId} (${requests.length} requests)`,
+    );
+    try {
+      const id = extractDocId(presentationId) || presentationId;
+      const slides = await this.getSlidesClient();
+      const response = await slides.presentations.batchUpdate({
+        presentationId: id,
+        requestBody: { requests },
+      });
+
+      logToFile(
+        `[SlidesService] Finished batchUpdate for presentation: ${id}`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(response.data),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logToFile(
+        `[SlidesService] Error during slides.batchUpdate: ${errorMessage}`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ error: errorMessage }),
+          },
+        ],
+      };
+    }
+  };
+
+  private buildSlideRequests(
+    slideId: string,
+    elements: Array<{
+      type: string;
+      content?: string;
+      shape_type?: string;
+      url?: string;
+      layer?: number;
+      position: { x: number; y: number; w: number; h: number };
+      style?: {
+        size?: number;
+        bold?: boolean;
+        italic?: boolean;
+        align?: string;
+        vertical_align?: string;
+        color?: { red: number; green: number; blue: number };
+        bg_color?: { red: number; green: number; blue: number };
+        border_color?: { red: number; green: number; blue: number };
+        border_weight?: number;
+        no_border?: boolean;
+        font_family?: string;
+        underline?: boolean;
+        strikethrough?: boolean;
+        bold_phrases?: string[];
+        bold_until?: number;
+        links?: Array<{ text: string; url: string }>;
+      };
+    }>,
+    objCounter: { value: number },
+  ): slides_v1.Schema$Request[] {
+    const requests: slides_v1.Schema$Request[] = [];
+
+    const getId = (prefix: string) => {
+      objCounter.value += 1;
+      return `${prefix}_${Date.now()}_${objCounter.value}`;
+    };
+
+    // Sort: shapes first, then images, then text; within each group by layer
+    const sortOrder = (el: { type: string; layer?: number }) => {
+      const layerVal = el.layer ?? 1;
+      const typeMap: Record<string, number> = {
+        shape: 0,
+        image: 1,
+        text: 2,
+      };
+      const typeVal = typeMap[el.type] ?? 3;
+      return layerVal * 10 + typeVal;
+    };
+
+    const sorted = [...elements].sort(
+      (a, b) => sortOrder(a) - sortOrder(b),
+    );
+
+    for (const el of sorted) {
+      const pos = el.position;
+      const style = el.style || {};
+
+      if (el.type === 'shape') {
+        const objId = getId('sh');
+
+        requests.push({
+          createShape: {
+            objectId: objId,
+            shapeType: (el.shape_type as string) || 'RECTANGLE',
+            elementProperties: {
+              pageObjectId: slideId,
+              size: {
+                height: { magnitude: pos.h, unit: 'PT' },
+                width: { magnitude: pos.w, unit: 'PT' },
+              },
+              transform: {
+                scaleX: 1,
+                scaleY: 1,
+                translateX: pos.x,
+                translateY: pos.y,
+                unit: 'PT',
+              },
+            },
+          },
+        });
+
+        const props: any = {};
+        const fields: string[] = [];
+
+        if (style.bg_color) {
+          props.shapeBackgroundFill = {
+            solidFill: { color: { rgbColor: style.bg_color } },
+          };
+          fields.push('shapeBackgroundFill.solidFill.color');
+        }
+
+        if (style.border_color) {
+          props.outline = {
+            outlineFill: {
+              solidFill: { color: { rgbColor: style.border_color } },
+            },
+            weight: {
+              magnitude: style.border_weight ?? 1,
+              unit: 'PT',
+            },
+          };
+          fields.push(
+            'outline.outlineFill.solidFill.color',
+            'outline.weight',
+          );
+        } else if (style.no_border) {
+          props.outline = { propertyState: 'NOT_RENDERED' };
+          fields.push('outline.propertyState');
+        }
+
+        if (fields.length > 0) {
+          requests.push({
+            updateShapeProperties: {
+              objectId: objId,
+              shapeProperties: props,
+              fields: fields.join(','),
+            },
+          });
+        }
+      } else if (el.type === 'image') {
+        const objId = getId('img');
+
+        requests.push({
+          createImage: {
+            objectId: objId,
+            url: el.url,
+            elementProperties: {
+              pageObjectId: slideId,
+              size: {
+                height: { magnitude: pos.h, unit: 'PT' },
+                width: { magnitude: pos.w, unit: 'PT' },
+              },
+              transform: {
+                scaleX: 1,
+                scaleY: 1,
+                translateX: pos.x,
+                translateY: pos.y,
+                unit: 'PT',
+              },
+            },
+          },
+        });
+      } else if (el.type === 'text') {
+        const objId = getId('tx');
+        const content = el.content || '';
+
+        requests.push({
+          createShape: {
+            objectId: objId,
+            shapeType: 'TEXT_BOX',
+            elementProperties: {
+              pageObjectId: slideId,
+              size: {
+                height: { magnitude: pos.h, unit: 'PT' },
+                width: { magnitude: pos.w, unit: 'PT' },
+              },
+              transform: {
+                scaleX: 1,
+                scaleY: 1,
+                translateX: pos.x,
+                translateY: pos.y,
+                unit: 'PT',
+              },
+            },
+          },
+        });
+
+        requests.push({
+          insertText: { objectId: objId, text: content },
+        });
+
+        // Base text style
+        requests.push({
+          updateTextStyle: {
+            objectId: objId,
+            style: {
+              fontSize: { magnitude: style.size ?? 11, unit: 'PT' },
+              bold: style.bold ?? false,
+              italic: style.italic ?? false,
+              foregroundColor: {
+                opaqueColor: {
+                  rgbColor: style.color ?? {
+                    red: 0,
+                    green: 0,
+                    blue: 0,
+                  },
+                },
+              },
+              fontFamily: style.font_family ?? 'Arial',
+              underline: style.underline ?? false,
+              strikethrough: style.strikethrough ?? false,
+            },
+            fields: 'fontSize,bold,italic,underline,strikethrough,foregroundColor,fontFamily',
+          },
+        });
+
+        // Paragraph style
+        requests.push({
+          updateParagraphStyle: {
+            objectId: objId,
+            style: {
+              alignment: style.align ?? 'START',
+            },
+            fields: 'alignment',
+          },
+        });
+
+        // Vertical alignment
+        if (style.vertical_align) {
+          requests.push({
+            updateShapeProperties: {
+              objectId: objId,
+              shapeProperties: {
+                contentAlignment:
+                  style.vertical_align as slides_v1.Schema$ShapeProperties['contentAlignment'],
+              },
+              fields: 'contentAlignment',
+            },
+          });
+        }
+
+        // Bold phrases
+        if (style.bold_phrases) {
+          for (const phrase of style.bold_phrases) {
+            let searchFrom = 0;
+            while (true) {
+              const idx = content.indexOf(phrase, searchFrom);
+              if (idx === -1) break;
+              requests.push({
+                updateTextStyle: {
+                  objectId: objId,
+                  style: { bold: true },
+                  textRange: {
+                    type: 'FIXED_RANGE',
+                    startIndex: idx,
+                    endIndex: idx + phrase.length,
+                  },
+                  fields: 'bold',
+                },
+              });
+              searchFrom = idx + 1;
+            }
+          }
+        }
+
+        // Bold until (legacy)
+        if (style.bold_until) {
+          requests.push({
+            updateTextStyle: {
+              objectId: objId,
+              style: { bold: true },
+              textRange: {
+                type: 'FIXED_RANGE',
+                startIndex: 0,
+                endIndex: style.bold_until,
+              },
+              fields: 'bold',
+            },
+          });
+        }
+
+        // Links
+        if (style.links) {
+          for (const linkDef of style.links) {
+            let searchFrom = 0;
+            while (true) {
+              const idx = content.indexOf(linkDef.text, searchFrom);
+              if (idx === -1) break;
+              requests.push({
+                updateTextStyle: {
+                  objectId: objId,
+                  style: {
+                    link: { url: linkDef.url },
+                  },
+                  textRange: {
+                    type: 'FIXED_RANGE',
+                    startIndex: idx,
+                    endIndex: idx + linkDef.text.length,
+                  },
+                  fields: 'link',
+                },
+              });
+              searchFrom = idx + 1;
+            }
+          }
+        }
+      }
+    }
+
+    return requests;
+  }
+
+  public createFromJson = async ({
+    presentationId,
+    slideJson: rawSlideJson,
+  }: {
+    presentationId: string;
+    slideJson: string | Record<string, unknown>;
+  }) => {
+    try {
+      const id = extractDocId(presentationId) || presentationId;
+      const slideJson: Record<string, unknown> =
+        typeof rawSlideJson === 'string'
+          ? JSON.parse(rawSlideJson)
+          : rawSlideJson;
+
+      // Normalize: accept either slides[] or top-level elements[] (backward compat)
+      const slideDefs = (slideJson as any).slides
+        ? (slideJson as any).slides
+        : [{ elements: (slideJson as any).elements || [] }];
+
+      logToFile(
+        `[SlidesService] Starting createFromJson for presentation: ${id} (${slideDefs.length} slides)`,
+      );
+
+      const requests: slides_v1.Schema$Request[] = [];
+      const slideIds: string[] = [];
+      const objCounter = { value: 0 };
+
+      for (let i = 0; i < slideDefs.length; i++) {
+        const slideId = `slide_${Date.now()}_${i}`;
+        slideIds.push(slideId);
+
+        requests.push({
+          createSlide: {
+            objectId: slideId,
+            insertionIndex: i + 1,
+            slideLayoutReference: { predefinedLayout: 'BLANK' },
+          },
+        });
+
+        requests.push(
+          ...this.buildSlideRequests(slideId, slideDefs[i].elements, objCounter),
+        );
+      }
+
+      // Execute the batch update
+      const slides = await this.getSlidesClient();
+      const response = await slides.presentations.batchUpdate({
+        presentationId: id,
+        requestBody: { requests },
+      });
+
+      const presLink = `https://docs.google.com/presentation/d/${id}/edit`;
+      logToFile(
+        `[SlidesService] Finished createFromJson for presentation: ${id}, ${slideIds.length} slides created`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              slideIds,
+              presentationLink: presLink,
+              slidesCreated: slideIds.length,
+              repliesCount: response.data.replies?.length ?? 0,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logToFile(
+        `[SlidesService] Error during slides.createFromJson: ${errorMessage}`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ error: errorMessage }),
+          },
+        ],
+      };
+    }
+  };
+
   public getSlideThumbnail = async ({
     presentationId,
     slideObjectId,

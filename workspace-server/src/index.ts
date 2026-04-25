@@ -458,6 +458,157 @@ async function main() {
     slidesService.getSlideThumbnail,
   );
 
+  server.registerTool(
+    'slides.create',
+    {
+      description:
+        'Creates a new blank Google Slides presentation. Returns the presentation ID and URL.',
+      inputSchema: {
+        title: z.string().describe('The title for the new presentation.'),
+      },
+    },
+    slidesService.create,
+  );
+
+  server.registerTool(
+    'slides.batchUpdate',
+    {
+      description:
+        'Executes a batch of updates (create, modify, delete) on a Google Slides presentation. Takes an array of raw Slides API request objects.',
+      inputSchema: {
+        presentationId: z
+          .string()
+          .describe('The ID or URL of the presentation to modify.'),
+        requests: z
+          .string()
+          .describe(
+            'JSON string of an array of Slides API request objects (e.g., [{"createSlide":{}}, {"createShape":{...}}]). Will be parsed server-side.',
+          ),
+      },
+    },
+    slidesService.batchUpdate,
+  );
+
+  // Shared element schema for createFromJson
+  const slideElementSchema = z.object({
+    type: z.enum(['text', 'shape', 'image']).describe('Element type.'),
+    content: z
+      .string()
+      .optional()
+      .describe('Text content (for text elements).'),
+    shape_type: z
+      .string()
+      .optional()
+      .describe(
+        'Shape type (e.g., RECTANGLE, RIGHT_ARROW, TEXT_BOX). Default: RECTANGLE.',
+      ),
+    url: z.string().optional().describe('Image URL (for image elements).'),
+    layer: z
+      .number()
+      .optional()
+      .describe(
+        'Z-index layer for rendering order. Lower layers render first.',
+      ),
+    position: z
+      .object({
+        x: z.number().describe('X position in points.'),
+        y: z.number().describe('Y position in points.'),
+        w: z.number().describe('Width in points.'),
+        h: z.number().describe('Height in points.'),
+      })
+      .describe('Position and size on a 720x405 point grid.'),
+    style: z
+      .object({
+        size: z.number().optional().describe('Font size in points.'),
+        bold: z.boolean().optional().describe('Bold text.'),
+        italic: z.boolean().optional().describe('Italic text.'),
+        align: z
+          .enum(['START', 'CENTER', 'END'])
+          .optional()
+          .describe('Horizontal text alignment.'),
+        vertical_align: z
+          .enum(['TOP', 'MIDDLE', 'BOTTOM'])
+          .optional()
+          .describe('Vertical content alignment.'),
+        color: z
+          .object({
+            red: z.number(),
+            green: z.number(),
+            blue: z.number(),
+          })
+          .optional()
+          .describe('Text color (RGB 0-1).'),
+        bg_color: z
+          .object({
+            red: z.number(),
+            green: z.number(),
+            blue: z.number(),
+          })
+          .optional()
+          .describe('Shape background color (RGB 0-1).'),
+        border_color: z
+          .object({
+            red: z.number(),
+            green: z.number(),
+            blue: z.number(),
+          })
+          .optional()
+          .describe('Shape border color (RGB 0-1).'),
+        border_weight: z
+          .number()
+          .optional()
+          .describe('Border weight in points.'),
+        no_border: z
+          .boolean()
+          .optional()
+          .describe('Remove border from shape.'),
+        font_family: z
+          .string()
+          .optional()
+          .describe('Font family name (e.g. "Arial", "Roboto"). Defaults to "Arial".'),
+        underline: z.boolean().optional().describe('Underline text.'),
+        strikethrough: z.boolean().optional().describe('Strikethrough text.'),
+        bold_phrases: z
+          .array(z.string())
+          .optional()
+          .describe('Phrases within content to bold.'),
+        bold_until: z
+          .number()
+          .optional()
+          .describe('Bold text from start to this character index.'),
+        links: z
+          .array(
+            z.object({
+              text: z.string().describe('Link text to find in content.'),
+              url: z.string().describe('URL to link to.'),
+            }),
+          )
+          .optional()
+          .describe('Hyperlinks to apply to matching text.'),
+      })
+      .optional()
+      .describe('Styling options for the element.'),
+  });
+
+  server.registerTool(
+    'slides.createFromJson',
+    {
+      description:
+        'Creates one or more slides in a presentation from a JSON blueprint. Supports two formats: (1) { "slides": [{ "elements": [...] }, ...] } for multiple slides, or (2) { "elements": [...] } for a single slide. Elements are positioned on a 720x405 point grid. Each element has: type ("text"|"shape"|"image"), position ({x,y,w,h} in points), optional content (string), optional shape_type (e.g. "RECTANGLE","TEXT_BOX"), optional url (for images), optional layer (z-index), optional style ({size,bold,italic,underline,strikethrough,align,vertical_align,color,bg_color,border_color,border_weight,no_border,font_family,bold_phrases,bold_until,links}). Colors are RGB 0-1 objects ({red,green,blue}).',
+      inputSchema: {
+        presentationId: z
+          .string()
+          .describe('The ID or URL of the presentation to add slides to.'),
+        slideJson: z
+          .string()
+          .describe(
+            'JSON string of the slide blueprint. Use {"slides":[{"elements":[...]},...]} for multiple slides or {"elements":[...]} for one slide. Will be parsed server-side.',
+          ),
+      },
+    },
+    slidesService.createFromJson,
+  );
+
   // Sheets tools
   registerTool(
     'sheets.getText',
