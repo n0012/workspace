@@ -568,6 +568,10 @@ async function main() {
           .describe('Font family name (e.g. "Arial", "Roboto"). Defaults to "Arial".'),
         underline: z.boolean().optional().describe('Underline text.'),
         strikethrough: z.boolean().optional().describe('Strikethrough text.'),
+        indent: z
+          .number()
+          .optional()
+          .describe('Left indent of paragraph text in points (e.g. 18 for one level of bullet indentation).'),
         bold_phrases: z
           .array(z.string())
           .optional()
@@ -594,7 +598,7 @@ async function main() {
     'slides.createFromJson',
     {
       description:
-        'Creates one or more slides in a presentation from a JSON blueprint. Supports two formats: (1) { "slides": [{ "elements": [...] }, ...] } for multiple slides, or (2) { "elements": [...] } for a single slide. Elements are positioned on a 720x405 point grid. Each element has: type ("text"|"shape"|"image"), position ({x,y,w,h} in points), optional content (string), optional shape_type (e.g. "RECTANGLE","TEXT_BOX"), optional url (for images), optional layer (z-index), optional style ({size,bold,italic,underline,strikethrough,align,vertical_align,color,bg_color,border_color,border_weight,no_border,font_family,bold_phrases,bold_until,links}). Colors are RGB 0-1 objects ({red,green,blue}).',
+        'Creates one or more slides in a presentation from a JSON blueprint. Supports two formats: (1) { "slides": [{ "elements": [...] }, ...] } for multiple slides, or (2) { "elements": [...] } for a single slide. Elements are positioned on a 720x405 point grid. Each element has: type ("text"|"shape"|"image"), position ({x,y,w,h} in points), optional content (string), optional shape_type (e.g. "RECTANGLE","TEXT_BOX"), optional url (for images), optional layer (z-index), optional style ({size,bold,italic,underline,strikethrough,align,vertical_align,indent,color,bg_color,border_color,border_weight,no_border,font_family,bold_phrases,bold_until,links}). Colors are RGB 0-1 objects ({red,green,blue}). Image URLs containing unresolved template placeholders are replaced with a fallback icon.',
       inputSchema: {
         presentationId: z
           .string()

@@ -392,6 +392,7 @@ export class SlidesService {
         font_family?: string;
         underline?: boolean;
         strikethrough?: boolean;
+        indent?: number;
         bold_phrases?: string[];
         bold_until?: number;
         links?: Array<{ text: string; url: string }>;
@@ -479,6 +480,11 @@ export class SlidesService {
           fields.push('outline.propertyState');
         }
 
+        if (style.vertical_align) {
+          props.contentAlignment = style.vertical_align;
+          fields.push('contentAlignment');
+        }
+
         if (fields.length > 0) {
           requests.push({
             updateShapeProperties: {
@@ -490,11 +496,16 @@ export class SlidesService {
         }
       } else if (el.type === 'image') {
         const objId = getId('img');
+        // Sanitize URLs that contain unresolved template placeholders (e.g. from LLM output)
+        let imageUrl = el.url ?? '';
+        if (imageUrl.includes('{') || imageUrl.includes('%7B')) {
+          imageUrl = 'https://img.icons8.com/m_rounded/512/4285F4/info.png';
+        }
 
         requests.push({
           createImage: {
             objectId: objId,
-            url: el.url,
+            url: imageUrl,
             elementProperties: {
               pageObjectId: slideId,
               size: {
@@ -571,8 +582,12 @@ export class SlidesService {
             objectId: objId,
             style: {
               alignment: style.align ?? 'START',
+              ...(style.indent !== undefined && {
+                indentStart: { magnitude: style.indent, unit: 'PT' },
+              }),
             },
-            fields: 'alignment',
+            fields:
+              style.indent !== undefined ? 'alignment,indentStart' : 'alignment',
           },
         });
 
