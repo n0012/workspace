@@ -104,9 +104,18 @@ if [ $? -ne 0 ]; then
 fi
 
 SCOPES=()
+# Filter to https:// lines so any Node/ts-node warnings written to stderr
+# (captured via 2>&1 above so we can surface them on failure) don't end up
+# in the user-visible scope list.
 while IFS= read -r line; do
-    [ -n "$line" ] && SCOPES+=("$line")
+    [[ "$line" == https://* ]] && SCOPES+=("$line")
 done <<< "$SCOPES_OUTPUT"
+
+if [ ${#SCOPES[@]} -eq 0 ]; then
+    echo -e "${RED}Error: print-scopes.ts produced no scope output.${NC}"
+    echo "$SCOPES_OUTPUT"
+    exit 1
+fi
 
 for scope in "${SCOPES[@]}"; do
     echo -e "     ${GREEN}$scope${NC}"
