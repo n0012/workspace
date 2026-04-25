@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { execFileSync } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -102,17 +102,13 @@ describe('getAllPossibleScopes (issue #323)', () => {
     // fails, the consent screen registration list will drift from
     // FEATURE_GROUPS — which is the bug in issue #323.
     const repoRoot = join(__dirname, '..', '..', '..', '..');
-    const output = execFileSync(
-      'npx',
-      [
-        '--no-install',
-        'ts-node',
-        '--transpile-only',
-        'scripts/print-scopes.ts',
-      ],
+    // execSync (not execFileSync) so Windows can resolve npx.cmd via the
+    // shell. Tests run on ubuntu/macos/windows.
+    const output = execSync(
+      'npx --no-install ts-node --transpile-only scripts/print-scopes.ts',
       { cwd: repoRoot, encoding: 'utf8' },
     );
-    const printed = output.trim().split('\n');
+    const printed = output.trim().split(/\r?\n/);
     expect(printed).toEqual(getAllPossibleScopes());
   });
 
