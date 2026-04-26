@@ -609,10 +609,10 @@ async function main() {
             'JSON string of the slide blueprint. Use {"slides":[{"elements":[...]},...]} for multiple slides or {"elements":[...]} for one slide. Will be parsed server-side.',
           ),
         theme: z
-          .enum(['google', 'minimal', 'dark'])
+          .enum(['light', 'google', 'dark'])
           .optional()
           .describe(
-            'Named colour palette and font defaults. "google" = Google Blue/Green + Google Sans. "minimal" = dark grey + Arial. "dark" = dark background + blue accent + Arial. When set, color aliases ("primary", "surface", etc.) resolve to theme colours and font_family defaults to the theme font.',
+            'Named colour palette and font defaults. Defaults to "light" when omitted. "light" = clean neutral (near-black headers, Google Blue 600 accent, Arial — works on any machine). "google" = official Google brand palette (Blue #1A73E8, Green #34A853, Google Sans font). "dark" = dark background, blue accent, Arial. Color aliases in style fields ("primary", "primary_text", "secondary", "secondary_text", "surface", "surface_alt", "text", "text_muted", "background") resolve to the active theme. font_family defaults to the theme font; pass "theme" to opt in explicitly.',
           ),
       },
     },

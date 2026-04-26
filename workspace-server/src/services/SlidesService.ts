@@ -32,40 +32,44 @@ interface Theme {
 }
 
 const THEMES: Record<string, Theme> = {
-  google: {
-    primary:       { red: 0.11, green: 0.33, blue: 0.68 },
-    primaryText:   { red: 1.00, green: 1.00, blue: 1.00 },
-    secondary:     { red: 0.10, green: 0.53, blue: 0.24 },
-    secondaryText: { red: 1.00, green: 1.00, blue: 1.00 },
-    surface:       { red: 0.86, green: 0.93, blue: 1.00 },
-    surfaceAlt:    { red: 0.84, green: 0.96, blue: 0.87 },
-    text:          { red: 0.15, green: 0.15, blue: 0.15 },
-    textMuted:     { red: 0.50, green: 0.50, blue: 0.50 },
-    background:    { red: 1.00, green: 1.00, blue: 1.00 },
-    fontFamily:    'Google Sans',
-  },
-  minimal: {
-    primary:       { red: 0.13, green: 0.13, blue: 0.13 },
-    primaryText:   { red: 1.00, green: 1.00, blue: 1.00 },
-    secondary:     { red: 0.30, green: 0.30, blue: 0.30 },
-    secondaryText: { red: 1.00, green: 1.00, blue: 1.00 },
-    surface:       { red: 0.96, green: 0.96, blue: 0.96 },
-    surfaceAlt:    { red: 0.90, green: 0.90, blue: 0.90 },
-    text:          { red: 0.13, green: 0.13, blue: 0.13 },
-    textMuted:     { red: 0.50, green: 0.50, blue: 0.50 },
-    background:    { red: 1.00, green: 1.00, blue: 1.00 },
+  // Clean neutral default — works without Google-specific fonts.
+  // primary = near-black (#202124), secondary = Google Blue 600 (#1A73E8)
+  light: {
+    primary:       { red: 0.125, green: 0.129, blue: 0.141 }, // #202124
+    primaryText:   { red: 1.000, green: 1.000, blue: 1.000 },
+    secondary:     { red: 0.102, green: 0.451, blue: 0.910 }, // #1A73E8 Google Blue 600
+    secondaryText: { red: 1.000, green: 1.000, blue: 1.000 },
+    surface:       { red: 0.973, green: 0.976, blue: 0.980 }, // #F8F9FA Google Grey 50
+    surfaceAlt:    { red: 0.914, green: 0.933, blue: 0.965 }, // #E9EEF6
+    text:          { red: 0.125, green: 0.129, blue: 0.141 }, // #202124
+    textMuted:     { red: 0.373, green: 0.388, blue: 0.408 }, // #5F6368 Google Grey 700
+    background:    { red: 1.000, green: 1.000, blue: 1.000 },
     fontFamily:    'Arial',
   },
+  // Google brand palette — matches official Google design system.
+  // Blue #1A73E8, Green #34A853, font Google Sans.
+  google: {
+    primary:       { red: 0.102, green: 0.451, blue: 0.910 }, // #1A73E8 Google Blue 600
+    primaryText:   { red: 1.000, green: 1.000, blue: 1.000 },
+    secondary:     { red: 0.204, green: 0.659, blue: 0.325 }, // #34A853 Google Green
+    secondaryText: { red: 1.000, green: 1.000, blue: 1.000 },
+    surface:       { red: 0.910, green: 0.941, blue: 0.996 }, // #E8F0FE Blue 50
+    surfaceAlt:    { red: 0.902, green: 0.957, blue: 0.918 }, // #E6F4EA Green 50
+    text:          { red: 0.122, green: 0.122, blue: 0.122 }, // #1F1F1F
+    textMuted:     { red: 0.267, green: 0.278, blue: 0.275 }, // #444746
+    background:    { red: 1.000, green: 1.000, blue: 1.000 },
+    fontFamily:    'Google Sans',
+  },
   dark: {
-    primary:       { red: 0.07, green: 0.07, blue: 0.10 },
-    primaryText:   { red: 1.00, green: 1.00, blue: 1.00 },
-    secondary:     { red: 0.20, green: 0.60, blue: 1.00 },
-    secondaryText: { red: 1.00, green: 1.00, blue: 1.00 },
-    surface:       { red: 0.12, green: 0.12, blue: 0.16 },
-    surfaceAlt:    { red: 0.18, green: 0.18, blue: 0.22 },
-    text:          { red: 0.90, green: 0.90, blue: 0.90 },
-    textMuted:     { red: 0.55, green: 0.55, blue: 0.60 },
-    background:    { red: 0.07, green: 0.07, blue: 0.10 },
+    primary:       { red: 0.043, green: 0.341, blue: 0.816 }, // #0B57D0 Material 3 primary
+    primaryText:   { red: 1.000, green: 1.000, blue: 1.000 },
+    secondary:     { red: 0.255, green: 0.671, blue: 0.996 }, // #41ABF9
+    secondaryText: { red: 0.071, green: 0.071, blue: 0.098 },
+    surface:       { red: 0.118, green: 0.118, blue: 0.157 }, // #1E1E28
+    surfaceAlt:    { red: 0.176, green: 0.176, blue: 0.220 }, // #2D2D38
+    text:          { red: 0.898, green: 0.898, blue: 0.898 }, // #E5E5E5
+    textMuted:     { red: 0.553, green: 0.557, blue: 0.588 }, // #8D8E96
+    background:    { red: 0.071, green: 0.071, blue: 0.098 }, // #121219
     fontFamily:    'Arial',
   },
 };
@@ -86,10 +90,9 @@ const COLOR_ALIASES: Record<string, keyof Theme> = {
  * Resolve a color value: pass-through RGB objects, resolve string aliases via theme.
  * Returns undefined if alias unknown or no theme active.
  */
-function resolveColor(color: ColorValue | undefined, theme: Theme | null): RGB | undefined {
+function resolveColor(color: ColorValue | undefined, theme: Theme): RGB | undefined {
   if (!color) return undefined;
   if (typeof color !== 'string') return color as RGB;
-  if (!theme) return undefined;
   const key = COLOR_ALIASES[color.toLowerCase()];
   return key ? (theme[key] as RGB) : undefined;
 }
@@ -480,7 +483,7 @@ export class SlidesService {
       };
     }>,
     objCounter: { value: number },
-    theme: Theme | null = null,
+    theme: Theme,
   ): slides_v1.Schema$Request[] {
     const requests: slides_v1.Schema$Request[] = [];
 
@@ -645,13 +648,12 @@ export class SlidesService {
               italic: style.italic ?? false,
               foregroundColor: {
                 opaqueColor: {
-                  rgbColor: resolveColor(style.color, theme) ??
-                    theme?.text ?? { red: 0, green: 0, blue: 0 },
+                  rgbColor: resolveColor(style.color, theme) ?? theme.text,
                 },
               },
               fontFamily: style.font_family === 'theme'
-                ? (theme?.fontFamily ?? 'Arial')
-                : (style.font_family ?? theme?.fontFamily ?? 'Arial'),
+                ? theme.fontFamily
+                : (style.font_family ?? theme.fontFamily),
               underline: style.underline ?? false,
               strikethrough: style.strikethrough ?? false,
             },
@@ -775,9 +777,8 @@ export class SlidesService {
           ? JSON.parse(rawSlideJson)
           : rawSlideJson;
 
-      const theme: Theme | null = themeName
-        ? (THEMES[themeName.toLowerCase()] ?? null)
-        : null;
+      // Default to 'light' when no theme specified
+      const theme: Theme = THEMES[(themeName ?? 'light').toLowerCase()] ?? THEMES['light'];
 
       // Normalize: accept either slides[] or top-level elements[] (backward compat)
       const slideDefs = (slideJson as any).slides
