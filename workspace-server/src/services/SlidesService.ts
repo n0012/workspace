@@ -37,23 +37,22 @@ interface Theme {
 }
 
 const THEMES: Record<string, Theme> = {
-  // Clean neutral default — works without Google-specific fonts.
-  // primary = near-black (#202124), secondary = Google Blue 600 (#1A73E8)
+  // Default theme — same as Google but with Arial for cross-platform compatibility.
   light: {
     primary:       { red: 0.125, green: 0.129, blue: 0.141 }, // #202124
     primaryText:   { red: 1.000, green: 1.000, blue: 1.000 },
     secondary:     { red: 0.102, green: 0.451, blue: 0.910 }, // #1A73E8 Google Blue 600
     secondaryText: { red: 1.000, green: 1.000, blue: 1.000 },
-    surface:       { red: 0.973, green: 0.976, blue: 0.980 }, // #F8F9FA Google Grey 50
-    surfaceAlt:    { red: 0.914, green: 0.933, blue: 0.965 }, // #E9EEF6
-    text:          { red: 0.125, green: 0.129, blue: 0.141 }, // #202124
-    textMuted:     { red: 0.373, green: 0.388, blue: 0.408 }, // #5F6368 Google Grey 700
+    surface:       { red: 0.910, green: 0.941, blue: 0.996 }, // #E8F0FE Blue 50
+    surfaceAlt:    { red: 0.902, green: 0.957, blue: 0.918 }, // #E6F4EA Green 50
+    text:          { red: 0.122, green: 0.122, blue: 0.122 }, // #1F1F1F
+    textMuted:     { red: 0.267, green: 0.278, blue: 0.275 }, // #444746
     background:    { red: 1.000, green: 1.000, blue: 1.000 },
     fontFamily:    'Arial',
-    accent1:       { red: 0.102, green: 0.451, blue: 0.910 }, // #1A73E8 Blue
-    accent2:       { red: 0.851, green: 0.188, blue: 0.145 }, // #D93025 Red 600
-    accent3:       { red: 0.949, green: 0.600, blue: 0.000 }, // #F29900 Amber
-    accent4:       { red: 0.094, green: 0.502, blue: 0.220 }, // #188038 Green 700
+    accent1:       { red: 0.263, green: 0.522, blue: 0.957 }, // #4285F4 Google Blue
+    accent2:       { red: 0.918, green: 0.263, blue: 0.208 }, // #EA4335 Google Red
+    accent3:       { red: 0.984, green: 0.737, blue: 0.020 }, // #FBBC05 Google Yellow
+    accent4:       { red: 0.204, green: 0.659, blue: 0.325 }, // #34A853 Google Green
   },
   // Google brand palette — all four brand colors + neutral headers.
   // Headers use near-black #202124, brand colors are accents.
@@ -72,24 +71,6 @@ const THEMES: Record<string, Theme> = {
     accent2:       { red: 0.918, green: 0.263, blue: 0.208 }, // #EA4335 Google Red
     accent3:       { red: 0.984, green: 0.737, blue: 0.020 }, // #FBBC05 Google Yellow
     accent4:       { red: 0.204, green: 0.659, blue: 0.325 }, // #34A853 Google Green
-  },
-  // Dark theme — light accents on dark surfaces.
-  // Uses Material Design 300-weight colors (light enough for dark bg).
-  dark: {
-    primary:       { red: 0.541, green: 0.706, blue: 0.973 }, // #8AB4F8 Blue 300 (headers)
-    primaryText:   { red: 0.071, green: 0.071, blue: 0.098 }, // #121219 dark text on blue
-    secondary:     { red: 0.506, green: 0.788, blue: 0.584 }, // #81C995 Green 300
-    secondaryText: { red: 0.071, green: 0.071, blue: 0.098 },
-    surface:       { red: 0.118, green: 0.118, blue: 0.157 }, // #1E1E28
-    surfaceAlt:    { red: 0.176, green: 0.176, blue: 0.220 }, // #2D2D38
-    text:          { red: 0.898, green: 0.898, blue: 0.898 }, // #E5E5E5
-    textMuted:     { red: 0.553, green: 0.557, blue: 0.588 }, // #8D8E96
-    background:    { red: 0.071, green: 0.071, blue: 0.098 }, // #121219
-    fontFamily:    'Arial',
-    accent1:       { red: 0.541, green: 0.706, blue: 0.973 }, // #8AB4F8 Blue 300
-    accent2:       { red: 0.949, green: 0.545, blue: 0.510 }, // #F28B82 Red 300
-    accent3:       { red: 0.992, green: 0.839, blue: 0.388 }, // #FDD663 Yellow 300
-    accent4:       { red: 0.506, green: 0.788, blue: 0.584 }, // #81C995 Green 300
   },
 };
 
