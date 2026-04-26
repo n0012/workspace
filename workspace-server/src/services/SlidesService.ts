@@ -50,6 +50,10 @@ const THEMES: Record<string, Theme> = {
     textMuted:     { red: 0.373, green: 0.388, blue: 0.408 }, // #5F6368 Google Grey 700
     background:    { red: 1.000, green: 1.000, blue: 1.000 },
     fontFamily:    'Arial',
+    accent1:       { red: 0.102, green: 0.451, blue: 0.910 }, // #1A73E8 Blue
+    accent2:       { red: 0.851, green: 0.188, blue: 0.145 }, // #D93025 Red 600
+    accent3:       { red: 0.949, green: 0.600, blue: 0.000 }, // #F29900 Amber
+    accent4:       { red: 0.094, green: 0.502, blue: 0.220 }, // #188038 Green 700
   },
   // Google brand palette — all four brand colors + neutral headers.
   // Headers use near-black #202124, brand colors are accents.
@@ -69,10 +73,12 @@ const THEMES: Record<string, Theme> = {
     accent3:       { red: 0.984, green: 0.737, blue: 0.020 }, // #FBBC05 Google Yellow
     accent4:       { red: 0.204, green: 0.659, blue: 0.325 }, // #34A853 Google Green
   },
+  // Dark theme — light accents on dark surfaces.
+  // Uses Material Design 300-weight colors (light enough for dark bg).
   dark: {
-    primary:       { red: 0.043, green: 0.341, blue: 0.816 }, // #0B57D0 Material 3 primary
-    primaryText:   { red: 1.000, green: 1.000, blue: 1.000 },
-    secondary:     { red: 0.255, green: 0.671, blue: 0.996 }, // #41ABF9
+    primary:       { red: 0.541, green: 0.706, blue: 0.973 }, // #8AB4F8 Blue 300 (headers)
+    primaryText:   { red: 0.071, green: 0.071, blue: 0.098 }, // #121219 dark text on blue
+    secondary:     { red: 0.506, green: 0.788, blue: 0.584 }, // #81C995 Green 300
     secondaryText: { red: 0.071, green: 0.071, blue: 0.098 },
     surface:       { red: 0.118, green: 0.118, blue: 0.157 }, // #1E1E28
     surfaceAlt:    { red: 0.176, green: 0.176, blue: 0.220 }, // #2D2D38
@@ -80,6 +86,10 @@ const THEMES: Record<string, Theme> = {
     textMuted:     { red: 0.553, green: 0.557, blue: 0.588 }, // #8D8E96
     background:    { red: 0.071, green: 0.071, blue: 0.098 }, // #121219
     fontFamily:    'Arial',
+    accent1:       { red: 0.541, green: 0.706, blue: 0.973 }, // #8AB4F8 Blue 300
+    accent2:       { red: 0.949, green: 0.545, blue: 0.510 }, // #F28B82 Red 300
+    accent3:       { red: 0.992, green: 0.839, blue: 0.388 }, // #FDD663 Yellow 300
+    accent4:       { red: 0.506, green: 0.788, blue: 0.584 }, // #81C995 Green 300
   },
 };
 
