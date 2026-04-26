@@ -893,6 +893,19 @@ export class SlidesService {
         }
       }
 
+      // Delete the default blank slide ("p") that Google creates with new presentations
+      try {
+        await slides.presentations.batchUpdate({
+          presentationId: id,
+          requestBody: {
+            requests: [{ deleteObject: { objectId: 'p' } }],
+          },
+        });
+        logToFile('[SlidesService] Deleted default blank slide "p"');
+      } catch {
+        // Not critical — slide "p" may not exist (already deleted or presentation wasn't new)
+      }
+
       const presLink = `https://docs.google.com/presentation/d/${id}/edit`;
       logToFile(
         `[SlidesService] Finished createFromJson for presentation: ${id}, ${slideIds.length} slides created`,
