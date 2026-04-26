@@ -897,18 +897,25 @@ export class SlidesService {
       logToFile(
         `[SlidesService] Finished createFromJson for presentation: ${id}, ${slideIds.length} slides created`,
       );
+
+      const hasNotes = notesSlides.length > 0;
+      const result: Record<string, unknown> = {
+        slideIds,
+        presentationLink: presLink,
+        slidesCreated: slideIds.length,
+        repliesCount: response.data.replies?.length ?? 0,
+      };
+
+      if (!hasNotes && slideIds.length > 0) {
+        result.speakerNotesStatus = 'MISSING';
+        result.action_required =
+          'No speaker notes were provided. Call slides.updateSpeakerNotes for each slideId above to add a talk track. A professional deck requires speaker notes on every slide.';
+      } else if (hasNotes) {
+        result.speakerNotesStatus = 'WRITTEN';
+      }
+
       return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              slideIds,
-              presentationLink: presLink,
-              slidesCreated: slideIds.length,
-              repliesCount: response.data.replies?.length ?? 0,
-            }),
-          },
-        ],
+        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
       };
     } catch (error) {
       const errorMessage =
