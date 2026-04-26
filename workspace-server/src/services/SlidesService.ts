@@ -13,6 +13,87 @@ import { logToFile } from '../utils/logger';
 import { extractDocId } from '../utils/IdUtils';
 import { gaxiosOptions } from '../utils/GaxiosConfig';
 
+// === Theme system ===
+
+type RGB = { red: number; green: number; blue: number };
+type ColorValue = RGB | string;
+
+interface Theme {
+  primary: RGB;       // Header / primary accent background
+  primaryText: RGB;   // Text on primary background
+  secondary: RGB;     // Secondary accent (e.g. green)
+  secondaryText: RGB; // Text on secondary background
+  surface: RGB;       // Card / box background (primary tint)
+  surfaceAlt: RGB;    // Card / box background (secondary tint)
+  text: RGB;          // Default body text
+  textMuted: RGB;     // Muted / caption text
+  background: RGB;    // Slide background
+  fontFamily: string; // Default font family
+}
+
+const THEMES: Record<string, Theme> = {
+  google: {
+    primary:       { red: 0.11, green: 0.33, blue: 0.68 },
+    primaryText:   { red: 1.00, green: 1.00, blue: 1.00 },
+    secondary:     { red: 0.10, green: 0.53, blue: 0.24 },
+    secondaryText: { red: 1.00, green: 1.00, blue: 1.00 },
+    surface:       { red: 0.86, green: 0.93, blue: 1.00 },
+    surfaceAlt:    { red: 0.84, green: 0.96, blue: 0.87 },
+    text:          { red: 0.15, green: 0.15, blue: 0.15 },
+    textMuted:     { red: 0.50, green: 0.50, blue: 0.50 },
+    background:    { red: 1.00, green: 1.00, blue: 1.00 },
+    fontFamily:    'Google Sans',
+  },
+  minimal: {
+    primary:       { red: 0.13, green: 0.13, blue: 0.13 },
+    primaryText:   { red: 1.00, green: 1.00, blue: 1.00 },
+    secondary:     { red: 0.30, green: 0.30, blue: 0.30 },
+    secondaryText: { red: 1.00, green: 1.00, blue: 1.00 },
+    surface:       { red: 0.96, green: 0.96, blue: 0.96 },
+    surfaceAlt:    { red: 0.90, green: 0.90, blue: 0.90 },
+    text:          { red: 0.13, green: 0.13, blue: 0.13 },
+    textMuted:     { red: 0.50, green: 0.50, blue: 0.50 },
+    background:    { red: 1.00, green: 1.00, blue: 1.00 },
+    fontFamily:    'Arial',
+  },
+  dark: {
+    primary:       { red: 0.07, green: 0.07, blue: 0.10 },
+    primaryText:   { red: 1.00, green: 1.00, blue: 1.00 },
+    secondary:     { red: 0.20, green: 0.60, blue: 1.00 },
+    secondaryText: { red: 1.00, green: 1.00, blue: 1.00 },
+    surface:       { red: 0.12, green: 0.12, blue: 0.16 },
+    surfaceAlt:    { red: 0.18, green: 0.18, blue: 0.22 },
+    text:          { red: 0.90, green: 0.90, blue: 0.90 },
+    textMuted:     { red: 0.55, green: 0.55, blue: 0.60 },
+    background:    { red: 0.07, green: 0.07, blue: 0.10 },
+    fontFamily:    'Arial',
+  },
+};
+
+const COLOR_ALIASES: Record<string, keyof Theme> = {
+  primary:        'primary',
+  primary_text:   'primaryText',
+  secondary:      'secondary',
+  secondary_text: 'secondaryText',
+  surface:        'surface',
+  surface_alt:    'surfaceAlt',
+  text:           'text',
+  text_muted:     'textMuted',
+  background:     'background',
+};
+
+/**
+ * Resolve a color value: pass-through RGB objects, resolve string aliases via theme.
+ * Returns undefined if alias unknown or no theme active.
+ */
+function resolveColor(color: ColorValue | undefined, theme: Theme | null): RGB | undefined {
+  if (!color) return undefined;
+  if (typeof color !== 'string') return color as RGB;
+  if (!theme) return undefined;
+  const key = COLOR_ALIASES[color.toLowerCase()];
+  return key ? (theme[key] as RGB) : undefined;
+}
+
 export class SlidesService {
   constructor(private authManager: AuthManager) {}
 
@@ -384,9 +465,9 @@ export class SlidesService {
         italic?: boolean;
         align?: string;
         vertical_align?: string;
-        color?: { red: number; green: number; blue: number };
-        bg_color?: { red: number; green: number; blue: number };
-        border_color?: { red: number; green: number; blue: number };
+        color?: ColorValue;
+        bg_color?: ColorValue;
+        border_color?: ColorValue;
         border_weight?: number;
         no_border?: boolean;
         font_family?: string;
@@ -399,6 +480,7 @@ export class SlidesService {
       };
     }>,
     objCounter: { value: number },
+    theme: Theme | null = null,
   ): slides_v1.Schema$Request[] {
     const requests: slides_v1.Schema$Request[] = [];
 
@@ -454,17 +536,19 @@ export class SlidesService {
         const props: any = {};
         const fields: string[] = [];
 
-        if (style.bg_color) {
+        const bgColor = resolveColor(style.bg_color, theme);
+        if (bgColor) {
           props.shapeBackgroundFill = {
-            solidFill: { color: { rgbColor: style.bg_color } },
+            solidFill: { color: { rgbColor: bgColor } },
           };
           fields.push('shapeBackgroundFill.solidFill.color');
         }
 
-        if (style.border_color) {
+        const borderColor = resolveColor(style.border_color, theme);
+        if (borderColor) {
           props.outline = {
             outlineFill: {
-              solidFill: { color: { rgbColor: style.border_color } },
+              solidFill: { color: { rgbColor: borderColor } },
             },
             weight: {
               magnitude: style.border_weight ?? 1,
@@ -561,14 +645,13 @@ export class SlidesService {
               italic: style.italic ?? false,
               foregroundColor: {
                 opaqueColor: {
-                  rgbColor: style.color ?? {
-                    red: 0,
-                    green: 0,
-                    blue: 0,
-                  },
+                  rgbColor: resolveColor(style.color, theme) ??
+                    theme?.text ?? { red: 0, green: 0, blue: 0 },
                 },
               },
-              fontFamily: style.font_family ?? 'Arial',
+              fontFamily: style.font_family === 'theme'
+                ? (theme?.fontFamily ?? 'Arial')
+                : (style.font_family ?? theme?.fontFamily ?? 'Arial'),
               underline: style.underline ?? false,
               strikethrough: style.strikethrough ?? false,
             },
@@ -679,9 +762,11 @@ export class SlidesService {
   public createFromJson = async ({
     presentationId,
     slideJson: rawSlideJson,
+    theme: themeName,
   }: {
     presentationId: string;
     slideJson: string | Record<string, unknown>;
+    theme?: string;
   }) => {
     try {
       const id = extractDocId(presentationId) || presentationId;
@@ -689,6 +774,10 @@ export class SlidesService {
         typeof rawSlideJson === 'string'
           ? JSON.parse(rawSlideJson)
           : rawSlideJson;
+
+      const theme: Theme | null = themeName
+        ? (THEMES[themeName.toLowerCase()] ?? null)
+        : null;
 
       // Normalize: accept either slides[] or top-level elements[] (backward compat)
       const slideDefs = (slideJson as any).slides
@@ -716,7 +805,7 @@ export class SlidesService {
         });
 
         requests.push(
-          ...this.buildSlideRequests(slideId, slideDefs[i].elements, objCounter),
+          ...this.buildSlideRequests(slideId, slideDefs[i].elements, objCounter, theme),
         );
       }
 

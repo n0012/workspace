@@ -598,7 +598,7 @@ async function main() {
     'slides.createFromJson',
     {
       description:
-        'Creates one or more slides in a presentation from a JSON blueprint. Supports two formats: (1) { "slides": [{ "elements": [...] }, ...] } for multiple slides, or (2) { "elements": [...] } for a single slide. Elements are positioned on a 720x405 point grid. Each element has: type ("text"|"shape"|"image"), position ({x,y,w,h} in points), optional content (string), optional shape_type (e.g. "RECTANGLE","TEXT_BOX"), optional url (for images), optional layer (z-index), optional style ({size,bold,italic,underline,strikethrough,align,vertical_align,indent,color,bg_color,border_color,border_weight,no_border,font_family,bold_phrases,bold_until,links}). Colors are RGB 0-1 objects ({red,green,blue}). Image URLs containing unresolved template placeholders are replaced with a fallback icon.',
+        'Creates one or more slides in a presentation from a JSON blueprint. Supports two formats: (1) { "slides": [{ "elements": [...] }, ...] } for multiple slides, or (2) { "elements": [...] } for a single slide. Elements are positioned on a 720x405 point grid. Each element has: type ("text"|"shape"|"image"), position ({x,y,w,h} in points), optional content (string), optional shape_type (e.g. "RECTANGLE","TEXT_BOX"), optional url (for images), optional layer (z-index), optional style ({size,bold,italic,underline,strikethrough,align,vertical_align,indent,color,bg_color,border_color,border_weight,no_border,font_family,bold_phrases,bold_until,links}). Colors are RGB 0-1 objects ({red,green,blue}) OR named aliases when a theme is active: "primary","primary_text","secondary","secondary_text","surface","surface_alt","text","text_muted","background". Set font_family to "theme" to inherit the theme font. Built-in themes: "google" (Google Blue/Green, Google Sans), "minimal" (dark grey, Arial), "dark" (dark background, blue accent, Arial). Image URLs with unresolved placeholders are replaced with a fallback icon.',
       inputSchema: {
         presentationId: z
           .string()
@@ -607,6 +607,12 @@ async function main() {
           .string()
           .describe(
             'JSON string of the slide blueprint. Use {"slides":[{"elements":[...]},...]} for multiple slides or {"elements":[...]} for one slide. Will be parsed server-side.',
+          ),
+        theme: z
+          .enum(['google', 'minimal', 'dark'])
+          .optional()
+          .describe(
+            'Named colour palette and font defaults. "google" = Google Blue/Green + Google Sans. "minimal" = dark grey + Arial. "dark" = dark background + blue accent + Arial. When set, color aliases ("primary", "surface", etc.) resolve to theme colours and font_family defaults to the theme font.',
           ),
       },
     },
