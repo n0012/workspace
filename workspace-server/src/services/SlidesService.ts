@@ -810,12 +810,60 @@ export class SlidesService {
         );
       }
 
-      // Execute the batch update
+      // Execute the batch update to create slides + elements
       const slides = await this.getSlidesClient();
       const response = await slides.presentations.batchUpdate({
         presentationId: id,
         requestBody: { requests },
       });
+
+      // Write speaker notes for any slide that has them in the blueprint
+      const notesSlides = slideDefs
+        .map((def: any, i: number) => ({ notes: def.speaker_notes, slideId: slideIds[i] }))
+        .filter((s: any) => s.notes);
+
+      if (notesSlides.length > 0) {
+        logToFile(
+          `[SlidesService] Writing speaker notes for ${notesSlides.length} slides`,
+        );
+        // Fetch the presentation to get speakerNotesObjectIds for the new slides
+        const pres = await slides.presentations.get({
+          presentationId: id,
+          fields:
+            'slides(objectId,slideProperties(notesPage(notesProperties(speakerNotesObjectId),pageElements(objectId,shape(text)))))',
+        });
+
+        const noteRequests: slides_v1.Schema$Request[] = [];
+        for (const { notes, slideId } of notesSlides) {
+          const slide = pres.data.slides?.find((s) => s.objectId === slideId);
+          const notesObjId =
+            slide?.slideProperties?.notesPage?.notesProperties?.speakerNotesObjectId;
+          if (!notesObjId) continue;
+
+          // Clear existing notes text if any
+          const notesShape = slide?.slideProperties?.notesPage?.pageElements?.find(
+            (el) => el.objectId === notesObjId,
+          );
+          if (notesShape?.shape?.text?.textElements?.length) {
+            noteRequests.push({
+              deleteText: { objectId: notesObjId, textRange: { type: 'ALL' } },
+            });
+          }
+          noteRequests.push({
+            insertText: { objectId: notesObjId, insertionIndex: 0, text: notes },
+          });
+        }
+
+        if (noteRequests.length > 0) {
+          await slides.presentations.batchUpdate({
+            presentationId: id,
+            requestBody: { requests: noteRequests },
+          });
+          logToFile(
+            `[SlidesService] Wrote speaker notes for ${notesSlides.length} slides`,
+          );
+        }
+      }
 
       const presLink = `https://docs.google.com/presentation/d/${id}/edit`;
       logToFile(
