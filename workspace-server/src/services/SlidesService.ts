@@ -21,7 +21,7 @@ type ColorValue = RGB | string;
 interface Theme {
   primary: RGB;       // Header / primary accent background
   primaryText: RGB;   // Text on primary background
-  secondary: RGB;     // Secondary accent (e.g. green)
+  secondary: RGB;     // Secondary accent
   secondaryText: RGB; // Text on secondary background
   surface: RGB;       // Card / box background (primary tint)
   surfaceAlt: RGB;    // Card / box background (secondary tint)
@@ -29,6 +29,11 @@ interface Theme {
   textMuted: RGB;     // Muted / caption text
   background: RGB;    // Slide background
   fontFamily: string; // Default font family
+  // Extended palette — optional, used when alias is referenced
+  accent1?: RGB;
+  accent2?: RGB;
+  accent3?: RGB;
+  accent4?: RGB;
 }
 
 const THEMES: Record<string, Theme> = {
@@ -46,12 +51,12 @@ const THEMES: Record<string, Theme> = {
     background:    { red: 1.000, green: 1.000, blue: 1.000 },
     fontFamily:    'Arial',
   },
-  // Google brand palette — matches official Google design system.
-  // Blue #1A73E8, Green #34A853, font Google Sans.
+  // Google brand palette — all four brand colors + neutral headers.
+  // Headers use near-black #202124, brand colors are accents.
   google: {
-    primary:       { red: 0.102, green: 0.451, blue: 0.910 }, // #1A73E8 Google Blue 600
+    primary:       { red: 0.125, green: 0.129, blue: 0.141 }, // #202124 near-black (headers)
     primaryText:   { red: 1.000, green: 1.000, blue: 1.000 },
-    secondary:     { red: 0.204, green: 0.659, blue: 0.325 }, // #34A853 Google Green
+    secondary:     { red: 0.102, green: 0.451, blue: 0.910 }, // #1A73E8 Google Blue 600 (accent)
     secondaryText: { red: 1.000, green: 1.000, blue: 1.000 },
     surface:       { red: 0.910, green: 0.941, blue: 0.996 }, // #E8F0FE Blue 50
     surfaceAlt:    { red: 0.902, green: 0.957, blue: 0.918 }, // #E6F4EA Green 50
@@ -59,6 +64,10 @@ const THEMES: Record<string, Theme> = {
     textMuted:     { red: 0.267, green: 0.278, blue: 0.275 }, // #444746
     background:    { red: 1.000, green: 1.000, blue: 1.000 },
     fontFamily:    'Google Sans',
+    accent1:       { red: 0.263, green: 0.522, blue: 0.957 }, // #4285F4 Google Blue
+    accent2:       { red: 0.918, green: 0.263, blue: 0.208 }, // #EA4335 Google Red
+    accent3:       { red: 0.984, green: 0.737, blue: 0.020 }, // #FBBC05 Google Yellow
+    accent4:       { red: 0.204, green: 0.659, blue: 0.325 }, // #34A853 Google Green
   },
   dark: {
     primary:       { red: 0.043, green: 0.341, blue: 0.816 }, // #0B57D0 Material 3 primary
@@ -84,6 +93,15 @@ const COLOR_ALIASES: Record<string, keyof Theme> = {
   text:           'text',
   text_muted:     'textMuted',
   background:     'background',
+  accent1:        'accent1',
+  accent2:        'accent2',
+  accent3:        'accent3',
+  accent4:        'accent4',
+  // Semantic aliases for Google theme
+  blue:           'accent1',
+  red:            'accent2',
+  yellow:         'accent3',
+  green:          'accent4',
 };
 
 /**
