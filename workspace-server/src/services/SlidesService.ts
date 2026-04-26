@@ -798,52 +798,6 @@ export class SlidesService {
           ...this.buildSlideRequests(slideId, slideDefs[i].elements, objCounter, theme),
         );
 
-        // Auto-add consistent footer to every slide
-        const footerLeftId = `footer_l_${Date.now()}_${i}`;
-        const footerRightId = `footer_r_${Date.now()}_${i}`;
-        requests.push(
-          { createShape: { objectId: footerLeftId, shapeType: 'TEXT_BOX', elementProperties: {
-            pageObjectId: slideId,
-            size: { height: { magnitude: 20, unit: 'PT' }, width: { magnitude: 120, unit: 'PT' } },
-            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 375, unit: 'PT' },
-          }}},
-          { insertText: { objectId: footerLeftId, text: 'Google Cloud' } },
-          { updateTextStyle: { objectId: footerLeftId, style: {
-            fontSize: { magnitude: 10, unit: 'PT' },
-            foregroundColor: { opaqueColor: { rgbColor: theme.textMuted } },
-            fontFamily: theme.fontFamily,
-          }, fields: 'fontSize,foregroundColor,fontFamily' }},
-          { createShape: { objectId: footerRightId, shapeType: 'TEXT_BOX', elementProperties: {
-            pageObjectId: slideId,
-            size: { height: { magnitude: 20, unit: 'PT' }, width: { magnitude: 200, unit: 'PT' } },
-            transform: { scaleX: 1, scaleY: 1, translateX: 502, translateY: 375, unit: 'PT' },
-          }}},
-          { insertText: { objectId: footerRightId, text: 'Proprietary & Confidential' } },
-          { updateTextStyle: { objectId: footerRightId, style: {
-            fontSize: { magnitude: 10, unit: 'PT' },
-            foregroundColor: { opaqueColor: { rgbColor: theme.textMuted } },
-            fontFamily: theme.fontFamily,
-          }, fields: 'fontSize,foregroundColor,fontFamily' }},
-          { updateParagraphStyle: { objectId: footerRightId, style: {
-            alignment: 'END',
-          }, fields: 'alignment' }},
-        );
-
-        // Auto-add four-color brand bar at bottom of every slide
-        const barColors = [theme.accent2, theme.accent3, theme.accent1, theme.accent4]; // red, yellow, blue, green
-        barColors.forEach((color, ci) => {
-          if (!color) return;
-          const barId = `bar_${Date.now()}_${i}_${ci}`;
-          requests.push({ createShape: { objectId: barId, shapeType: 'RECTANGLE', elementProperties: {
-            pageObjectId: slideId,
-            size: { height: { magnitude: 8, unit: 'PT' }, width: { magnitude: 180, unit: 'PT' } },
-            transform: { scaleX: 1, scaleY: 1, translateX: ci * 180, translateY: 397, unit: 'PT' },
-          }}});
-          requests.push({ updateShapeProperties: { objectId: barId, shapeProperties: {
-            shapeBackgroundFill: { solidFill: { color: { rgbColor: color } } },
-            outline: { propertyState: 'NOT_RENDERED' },
-          }, fields: 'shapeBackgroundFill.solidFill.color,outline.propertyState' }});
-        });
       }
 
       // Execute the batch update to create slides + elements
