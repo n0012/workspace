@@ -37,23 +37,6 @@ interface Theme {
 }
 
 const THEMES: Record<string, Theme> = {
-  // Default theme — same as Google but with Arial for cross-platform compatibility.
-  light: {
-    primary:       { red: 0.125, green: 0.129, blue: 0.141 }, // #202124
-    primaryText:   { red: 1.000, green: 1.000, blue: 1.000 },
-    secondary:     { red: 0.102, green: 0.451, blue: 0.910 }, // #1A73E8 Google Blue 600
-    secondaryText: { red: 1.000, green: 1.000, blue: 1.000 },
-    surface:       { red: 0.910, green: 0.941, blue: 0.996 }, // #E8F0FE Blue 50
-    surfaceAlt:    { red: 0.902, green: 0.957, blue: 0.918 }, // #E6F4EA Green 50
-    text:          { red: 0.122, green: 0.122, blue: 0.122 }, // #1F1F1F
-    textMuted:     { red: 0.267, green: 0.278, blue: 0.275 }, // #444746
-    background:    { red: 1.000, green: 1.000, blue: 1.000 },
-    fontFamily:    'Arial',
-    accent1:       { red: 0.263, green: 0.522, blue: 0.957 }, // #4285F4 Google Blue
-    accent2:       { red: 0.918, green: 0.263, blue: 0.208 }, // #EA4335 Google Red
-    accent3:       { red: 0.984, green: 0.737, blue: 0.020 }, // #FBBC05 Google Yellow
-    accent4:       { red: 0.204, green: 0.659, blue: 0.325 }, // #34A853 Google Green
-  },
   // Google brand palette — all four brand colors + neutral headers.
   // Headers use near-black #202124, brand colors are accents.
   google: {
@@ -773,11 +756,9 @@ export class SlidesService {
   public createFromJson = async ({
     presentationId,
     slideJson: rawSlideJson,
-    theme: themeName,
   }: {
     presentationId: string;
     slideJson: string | Record<string, unknown>;
-    theme?: string;
   }) => {
     try {
       const id = extractDocId(presentationId) || presentationId;
@@ -786,8 +767,7 @@ export class SlidesService {
           ? JSON.parse(rawSlideJson)
           : rawSlideJson;
 
-      // Default to 'light' when no theme specified
-      const theme: Theme = THEMES[(themeName ?? 'light').toLowerCase()] ?? THEMES['light'];
+      const theme: Theme = THEMES['google'];
 
       // Normalize: accept either slides[] or top-level elements[] (backward compat)
       const slideDefs = (slideJson as any).slides
