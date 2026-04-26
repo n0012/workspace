@@ -851,6 +851,144 @@ export class SlidesService {
     }
   };
 
+  // Speaker notes tools — approach adapted from
+  // https://github.com/gemini-cli-extensions/workspace/pull/235
+  // by @stefanoamorelli (MIT licence, same as this project).
+
+  private formatResult(data: unknown) {
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(data) }],
+    };
+  }
+
+  private formatError(method: string, error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    logToFile(`[SlidesService] Error during ${method}: ${msg}`);
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({ error: msg }) }],
+    };
+  }
+
+  public getSpeakerNotes = async ({
+    presentationId,
+  }: {
+    presentationId: string;
+  }) => {
+    logToFile(`[SlidesService] Getting speaker notes: ${presentationId}`);
+    try {
+      const id = extractDocId(presentationId) || presentationId;
+      const slides = await this.getSlidesClient();
+
+      const presentation = await slides.presentations.get({
+        presentationId: id,
+        fields:
+          'slides(objectId,slideProperties(notesPage(notesProperties(speakerNotesObjectId),pageElements(objectId,shape(text)))))',
+      });
+
+      const notesPerSlide = (presentation.data.slides ?? []).map(
+        (slide, index) => {
+          const notesPage = slide.slideProperties?.notesPage;
+          const speakerNotesObjectId =
+            notesPage?.notesProperties?.speakerNotesObjectId;
+
+          let notesText = '';
+          if (speakerNotesObjectId && notesPage?.pageElements) {
+            const notesShape = notesPage.pageElements.find(
+              (el) => el.objectId === speakerNotesObjectId,
+            );
+            if (notesShape?.shape?.text) {
+              notesText = this.extractTextFromTextContent(
+                notesShape.shape.text,
+              ).trim();
+            }
+          }
+
+          return {
+            slideIndex: index + 1,
+            slideObjectId: slide.objectId,
+            speakerNotesObjectId,
+            notes: notesText,
+          };
+        },
+      );
+
+      logToFile(`[SlidesService] Retrieved speaker notes: ${id}`);
+      return this.formatResult({ presentationId: id, slides: notesPerSlide });
+    } catch (error) {
+      return this.formatError('slides.getSpeakerNotes', error);
+    }
+  };
+
+  public updateSpeakerNotes = async ({
+    presentationId,
+    slideObjectId,
+    notes,
+  }: {
+    presentationId: string;
+    slideObjectId: string;
+    notes: string;
+  }) => {
+    logToFile(
+      `[SlidesService] Updating speaker notes for slide ${slideObjectId}`,
+    );
+    try {
+      const id = extractDocId(presentationId) || presentationId;
+      const slides = await this.getSlidesClient();
+
+      const presentation = await slides.presentations.get({
+        presentationId: id,
+        fields:
+          'slides(objectId,slideProperties(notesPage(notesProperties(speakerNotesObjectId),pageElements(objectId,shape(text)))))',
+      });
+
+      const slide = presentation.data.slides?.find(
+        (s) => s.objectId === slideObjectId,
+      );
+      if (!slide) throw new Error(`Slide not found: ${slideObjectId}`);
+
+      const speakerNotesObjectId =
+        slide.slideProperties?.notesPage?.notesProperties?.speakerNotesObjectId;
+      if (!speakerNotesObjectId)
+        throw new Error(`Speaker notes object not found for slide: ${slideObjectId}`);
+
+      const requests: slides_v1.Schema$Request[] = [];
+
+      const notesShape = slide.slideProperties?.notesPage?.pageElements?.find(
+        (el) => el.objectId === speakerNotesObjectId,
+      );
+      if (notesShape?.shape?.text?.textElements?.length) {
+        requests.push({
+          deleteText: {
+            objectId: speakerNotesObjectId,
+            textRange: { type: 'ALL' },
+          },
+        });
+      }
+
+      if (notes.length > 0) {
+        requests.push({
+          insertText: {
+            objectId: speakerNotesObjectId,
+            insertionIndex: 0,
+            text: notes,
+          },
+        });
+      }
+
+      if (requests.length > 0) {
+        await slides.presentations.batchUpdate({
+          presentationId: id,
+          requestBody: { requests },
+        });
+      }
+
+      logToFile(`[SlidesService] Updated speaker notes for slide: ${slideObjectId}`);
+      return this.formatResult({ presentationId: id, slideObjectId, speakerNotesObjectId, notes });
+    } catch (error) {
+      return this.formatError('slides.updateSpeakerNotes', error);
+    }
+  };
+
   public getSlideThumbnail = async ({
     presentationId,
     slideObjectId,

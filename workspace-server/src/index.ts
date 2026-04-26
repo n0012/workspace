@@ -458,6 +458,42 @@ async function main() {
     slidesService.getSlideThumbnail,
   );
 
+  // Speaker notes tools — approach adapted from PR #235
+  // https://github.com/gemini-cli-extensions/workspace/pull/235 by @stefanoamorelli
+  server.registerTool(
+    'slides.getSpeakerNotes',
+    {
+      description:
+        'Retrieves speaker notes for every slide in a presentation. Returns an array of {slideIndex, slideObjectId, speakerNotesObjectId, notes} — one entry per slide. Use slideObjectId with slides.updateSpeakerNotes to write notes back.',
+      inputSchema: {
+        presentationId: z
+          .string()
+          .describe('The ID or URL of the presentation.'),
+      },
+    },
+    slidesService.getSpeakerNotes,
+  );
+
+  server.registerTool(
+    'slides.updateSpeakerNotes',
+    {
+      description:
+        'Writes speaker notes for a specific slide. Replaces any existing notes. Get slideObjectId from slides.getSpeakerNotes or slides.getMetadata.',
+      inputSchema: {
+        presentationId: z
+          .string()
+          .describe('The ID or URL of the presentation.'),
+        slideObjectId: z
+          .string()
+          .describe('The object ID of the slide to update (from getSpeakerNotes or getMetadata).'),
+        notes: z
+          .string()
+          .describe('The speaker notes text. Pass an empty string to clear existing notes.'),
+      },
+    },
+    slidesService.updateSpeakerNotes,
+  );
+
   server.registerTool(
     'slides.create',
     {
