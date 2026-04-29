@@ -45,6 +45,41 @@ type DocsSuggestion =
   | DocsStyleChangeSuggestion
   | DocsParagraphStyleChangeSuggestion;
 
+// ---------------------------------------------------------------------------
+// Safe field mask constants for docs.documents.get with includeTabsContent.
+//
+// Using a wildcard like "tabs" or "tabs.documentTab.body" causes the Docs API
+// to include suggestion/comment sub-fields (suggestedInsertionIds, etc.) in
+// the field mask.  The API then rejects the request with:
+//   "Field mask cannot retrieve comment-specific fields when include_comments
+//    is false."
+// even when suggestionsViewMode is PREVIEW_WITHOUT_SUGGESTIONS, because the
+// field mask is validated *before* the view-mode filter is applied.
+//
+// The fix: enumerate only the fields _readStructuralElement actually reads.
+// ---------------------------------------------------------------------------
+const _ELEM =
+  'textRun(content),' +
+  'person(personProperties(name,email)),' +
+  'richLink(richLinkProperties(title,uri)),' +
+  'dateElement(dateElementProperties(displayText,timestamp))';
+
+const _PARA = `paragraph(elements(${_ELEM}))`;
+
+// One level of table nesting is enough for real-world docs.
+const _BODY_CONTENT = `${_PARA},table(tableRows(tableCells(content(${_PARA}))))`;
+
+// Shared tab sub-fields (tabId/title + body content).
+const _TAB_SUBFIELDS = `tabProperties(tabId,title),documentTab(body(content(${_BODY_CONTENT})))`;
+
+// Full read mask for getText / replaceText — includes title and up to 3
+// levels of tab nesting (the maximum Google Docs supports).
+const DOCS_READ_FIELDS = `title,tabs(${_TAB_SUBFIELDS},childTabs(${_TAB_SUBFIELDS},childTabs(${_TAB_SUBFIELDS})))`;
+
+// Minimal mask for writeText end-index lookup (only needs endIndex).
+const _TAB_END_SUBFIELDS = `tabProperties(tabId),documentTab(body(content(endIndex)))`;
+const DOCS_END_INDEX_FIELDS = `tabs(${_TAB_END_SUBFIELDS},childTabs(${_TAB_END_SUBFIELDS}))`;
+
 export class DocsService {
   /**
    * Recursively flattens a tab tree into a single array,
@@ -75,7 +110,7 @@ export class DocsService {
       const res = await docs.documents.get({
         documentId: id,
         suggestionsViewMode: 'SUGGESTIONS_INLINE',
-        fields: 'title,body',
+        fields: 'body',
       });
 
       const suggestions: DocsSuggestion[] = this._extractSuggestions(
@@ -90,11 +125,7 @@ export class DocsService {
         content: [
           {
             type: 'text' as const,
-            text: JSON.stringify(
-              { title: res.data.title, suggestions },
-              null,
-              2,
-            ),
+            text: JSON.stringify(suggestions, null, 2),
           },
         ],
       };
@@ -307,8 +338,9 @@ export class DocsService {
           // Discover the end index by reading the document (required for tabs)
           const res = await docs.documents.get({
             documentId: id,
-            fields: 'tabs',
+            fields: DOCS_END_INDEX_FIELDS,
             includeTabsContent: true,
+            suggestionsViewMode: 'PREVIEW_WITHOUT_SUGGESTIONS',
           });
 
           const tabs = this._flattenTabs(res.data.tabs || []);
@@ -543,11 +575,11 @@ export class DocsService {
       const docs = await this.getDocsClient();
       const res = await docs.documents.get({
         documentId: id,
-        fields: 'title,tabs', // Request title and tabs (body is legacy and mutually exclusive with tabs in mask)
+        fields: DOCS_READ_FIELDS,
         includeTabsContent: true,
+        suggestionsViewMode: 'PREVIEW_WITHOUT_SUGGESTIONS',
       });
 
-      const docTitle = res.data.title;
       const tabs = this._flattenTabs(res.data.tabs || []);
 
       // If tabId is provided, try to find it
@@ -570,9 +602,6 @@ export class DocsService {
         }
 
         let text = '';
-        if (docTitle) {
-          text += `Document Title: ${docTitle}\n\n`;
-        }
         content.forEach((element) => {
           text += this._readStructuralElement(element);
         });
@@ -603,9 +632,6 @@ export class DocsService {
       if (tabs.length === 1) {
         const tab = tabs[0];
         let text = '';
-        if (docTitle) {
-          text += `Document Title: ${docTitle}\n\n`;
-        }
         if (tab.documentTab?.body?.content) {
           tab.documentTab.body.content.forEach((element) => {
             text += this._readStructuralElement(element);
@@ -641,7 +667,7 @@ export class DocsService {
         content: [
           {
             type: 'text' as const,
-            text: JSON.stringify({ title: docTitle, tabs: tabsData }, null, 2),
+            text: JSON.stringify(tabsData, null, 2),
           },
         ],
       };
@@ -736,8 +762,9 @@ export class DocsService {
       // Get the document to find where the text will be replaced
       const docBefore = await docs.documents.get({
         documentId: id,
-        fields: 'tabs',
+        fields: DOCS_READ_FIELDS,
         includeTabsContent: true,
+        suggestionsViewMode: 'PREVIEW_WITHOUT_SUGGESTIONS',
       });
 
       const tabs = this._flattenTabs(docBefore.data.tabs || []);
