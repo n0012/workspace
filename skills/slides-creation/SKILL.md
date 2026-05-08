@@ -64,7 +64,8 @@ https://aiplatform.googleapis.com/v1/projects/{PROJECT}/locations/global/publish
 ```
 Auth: `Authorization: Bearer $(gcloud auth print-access-token)`
 
-**Correction loop:** after rendering a slide thumbnail, use Nano's image editing capability to visually fix the thumbnail toward the concept, then re-convert with Pro. More accurate than asking Pro to describe fixes in text.
+**Interleaved concept + JSON deck pattern:**
+Create slides in ordinal pairs — concept image slide immediately followed by its JSON slide. Add each pair sequentially so the deck order is preserved: (concept₁, JSON₁, concept₂, JSON₂, ...). Never add all concept images at the end — they must be inserted BEFORE their corresponding JSON slide. Use one `slides.createFromJson` call per slide to keep payloads small and avoid CLI timeouts.
 
 **Layer rule (critical):** every text element sharing a position with a shape MUST have `layer = shape layer + 1`. Text behind a shape is invisible — this is the most common failure mode.
 
