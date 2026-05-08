@@ -54,7 +54,17 @@ Use when you want to visually ideate before committing to JSON. `gemini-3.1-flas
 6. Return the URL
 ```
 
-**Vision model for conversion:** use `gemini-3.1-pro-preview` on the Vertex AI global endpoint for highest-fidelity translation. Standard API endpoint will timeout.
+**Image generation model:** `gemini-3.1-flash-image-preview` (Nano Banana 2) on Vertex AI global endpoint. Supports 16:9 native aspect ratio, image editing (pass an existing image to refine it), and up to 14 images per prompt. Use temperature 0.8 for consistent style across slides.
+
+**Vision model for conversion:** `gemini-3.1-pro-preview` on the Vertex AI global endpoint. Standard `generativelanguage.googleapis.com` endpoint will timeout on large JSON responses.
+
+**Vertex AI global endpoint pattern:**
+```
+https://aiplatform.googleapis.com/v1/projects/{PROJECT}/locations/global/publishers/google/models/{MODEL}:generateContent
+```
+Auth: `Authorization: Bearer $(gcloud auth print-access-token)`
+
+**Correction loop:** after rendering a slide thumbnail, use Nano's image editing capability to visually fix the thumbnail toward the concept, then re-convert with Pro. More accurate than asking Pro to describe fixes in text.
 
 **Layer rule (critical):** every text element sharing a position with a shape MUST have `layer = shape layer + 1`. Text behind a shape is invisible — this is the most common failure mode.
 
