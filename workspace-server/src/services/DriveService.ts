@@ -653,7 +653,9 @@ export class DriveService {
   }) => {
     logToFile(`Uploading file from ${localPath}`);
     try {
+      const auth = await this.authManager.getAuthenticatedClient();
       const drive = await this.getDriveClient();
+
       const absolutePath = path.isAbsolute(localPath)
         ? localPath
         : path.join(PROJECT_ROOT, localPath);
@@ -670,28 +672,21 @@ export class DriveService {
       const fileMetadata: drive_v3.Schema$File = { name: fileName };
       if (parentId) fileMetadata.parents = [parentId];
 
-      const media = {
-        mimeType: fileMime,
-        body: fs.createReadStream(absolutePath),
-      };
-
       const file = await drive.files.create({
         requestBody: fileMetadata,
-        media,
-        fields: 'id, name, webViewLink, webContentLink',
+        media: { mimeType: fileMime, body: fs.createReadStream(absolutePath) },
+        fields: 'id, name, webViewLink',
         supportsAllDrives: true,
       });
 
       const fileId = file.data.id!;
 
-      // Make file accessible to anyone with the link
-      await drive.permissions.create({
-        fileId,
-        requestBody: { role: 'reader', type: 'anyone' },
-        supportsAllDrives: true,
-      });
+      // Ensure we have a fresh access token, then embed it in the URL so the
+      // Slides API can fetch the image without the file needing to be public.
+      const tokenResponse = await auth.getAccessToken();
+      const accessToken = tokenResponse.token;
+      const imageUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&access_token=${accessToken}`;
 
-      const publicUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
       logToFile(`Uploaded ${fileName} → ${fileId}`);
 
       return {
@@ -701,7 +696,7 @@ export class DriveService {
             text: JSON.stringify({
               id: fileId,
               name: file.data.name,
-              publicUrl,
+              imageUrl,   // use this in slides.createFromJson {"type":"image","url":imageUrl}
               webViewLink: file.data.webViewLink,
             }),
           },

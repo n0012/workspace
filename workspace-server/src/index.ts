@@ -807,7 +807,7 @@ async function main() {
     'drive.uploadFile',
     {
       description:
-        'Uploads a local file to Google Drive and makes it publicly viewable (anyone with the link). Returns the file ID, public URL (usable in slides.createFromJson image elements), and web view link.',
+        'Uploads a local file to Google Drive (file stays private). Returns an OAuth-authenticated imageUrl that the Slides API can fetch directly — use this URL in slides.createFromJson image elements. Also returns the file ID and webViewLink.',
       inputSchema: {
         localPath: z
           .string()
