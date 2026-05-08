@@ -11,6 +11,8 @@ Layout patterns for `slides.createFromJson`. **Customize the brand section below
 
 ## Workflow
 
+### Standard (text-first)
+
 ```
 1. slides.create            → get presentationId
 2. slides.createFromJson    → build all slides (focus on layout)
@@ -19,6 +21,67 @@ Layout patterns for `slides.createFromJson`. **Customize the brand section below
 ```
 
 Write ~45 seconds of spoken content per slide (4-6 sentences): opening line, key points, transition.
+
+---
+
+### Image-first (concept → JSON)
+
+Use this when you want to visually ideate a slide before committing to JSON. `gemini-3.1-flash-image-preview` sketches the concept; you then read the image multimodally and translate the visual into `slides.createFromJson` elements.
+
+```
+1. Generate concept image   → gemini-3.1-flash-image-preview
+2. Analyze the image        → describe layout, hierarchy, color intent
+3. Map to JSON elements     → translate regions to text/shape/image elements
+4. slides.create            → get presentationId
+5. slides.createFromJson    → build slides from the translated JSON
+6. slides.updateSpeakerNotes × N
+7. Return the URL
+```
+
+#### Step 1 — Generate the concept image
+
+Prompt `gemini-3.1-flash-image-preview` with a visual description of the slide. Be explicit about layout intent:
+
+```
+Generate a single presentation slide concept (16:9, white background).
+[Describe the slide idea — title, key message, layout style, any visual elements.]
+Clean, minimal design. No decorative borders. Thin separator lines for structure.
+```
+
+The model saves the image locally (e.g. `/tmp/slide_concept.png`).
+
+#### Step 2 — Analyze the image (multimodal read)
+
+Feed the saved image back and extract layout structure:
+
+```
+Read this slide concept image. Describe:
+- The title text and its approximate position (top-left, centered, etc.)
+- Any section labels or subheadings
+- Body content regions (bullet list, two columns, stat callout, etc.)
+- Any visual elements (icons, divider lines, charts)
+- Approximate proportions (e.g. "title takes top 15%, body fills remaining space")
+```
+
+#### Step 3 — Translate to JSON elements
+
+Map each described region to a `slides.createFromJson` element using the 720×405 pt canvas:
+
+| Visual region | JSON element |
+|---|---|
+| Title text | `{"type":"text","style":{"size":24,"bold":true,"color":"text"}}` |
+| Section label / eyebrow | `{"type":"text","style":{"size":11,"bold":true,"color":"secondary"}}` |
+| Body copy / bullets | `{"type":"text","style":{"size":12,"color":"text"}}` |
+| Horizontal divider | `{"type":"shape","position":{"h":1},"style":{"bg_color":"text_muted","no_border":true}}` |
+| Vertical divider | `{"type":"shape","position":{"w":1},"style":{"bg_color":"text_muted","no_border":true}}` |
+| Accent bar / highlight | `{"type":"shape","style":{"bg_color":"secondary","no_border":true}}` |
+| Embedded image or icon | `{"type":"image","url":"<publicly accessible url>"}` |
+
+**Position mapping:** The canvas is 720pt wide × 405pt tall. If the concept image shows a title in the top 15%, that maps to approximately `y:30, h:40`. A two-column split at center maps to a vertical divider at `x:360`.
+
+**Color intent:** If the generated image uses a brand color for a heading or accent, use `"secondary"` (or `"primary"` for dark headers). Don't hardcode RGB — map to the nearest alias.
+
+**Keep it minimal:** The concept image is a sketch, not a spec. If the image suggests 8 bullet points, distill to 4. The slide JSON should be cleaner than the concept.
 
 ---
 
