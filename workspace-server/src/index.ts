@@ -804,6 +804,32 @@ async function main() {
   );
 
   registerTool(
+    'drive.uploadFile',
+    {
+      description:
+        'Uploads a local file to Google Drive and makes it publicly viewable (anyone with the link). Returns the file ID, public URL (usable in slides.createFromJson image elements), and web view link.',
+      inputSchema: {
+        localPath: z
+          .string()
+          .describe('Absolute path to the local file to upload.'),
+        name: z
+          .string()
+          .optional()
+          .describe('Name for the file in Drive. Defaults to the local filename.'),
+        mimeType: z
+          .string()
+          .optional()
+          .describe('MIME type of the file (e.g. "image/png"). Defaults to application/octet-stream.'),
+        parentId: z
+          .string()
+          .optional()
+          .describe('Drive folder ID to upload into. Defaults to root.'),
+      },
+    },
+    driveService.uploadFile,
+  );
+
+  registerTool(
     'calendar.list',
     {
       description: "Lists all of the user's calendars.",

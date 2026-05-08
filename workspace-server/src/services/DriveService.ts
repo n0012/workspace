@@ -639,4 +639,81 @@ export class DriveService {
       };
     }
   };
+
+  public uploadFile = async ({
+    localPath,
+    name,
+    mimeType,
+    parentId,
+  }: {
+    localPath: string;
+    name?: string;
+    mimeType?: string;
+    parentId?: string;
+  }) => {
+    logToFile(`Uploading file from ${localPath}`);
+    try {
+      const drive = await this.getDriveClient();
+      const absolutePath = path.isAbsolute(localPath)
+        ? localPath
+        : path.join(PROJECT_ROOT, localPath);
+
+      if (!fs.existsSync(absolutePath)) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: `File not found: ${absolutePath}` }) }],
+        };
+      }
+
+      const fileName = name ?? path.basename(absolutePath);
+      const fileMime = mimeType ?? 'application/octet-stream';
+
+      const fileMetadata: drive_v3.Schema$File = { name: fileName };
+      if (parentId) fileMetadata.parents = [parentId];
+
+      const media = {
+        mimeType: fileMime,
+        body: fs.createReadStream(absolutePath),
+      };
+
+      const file = await drive.files.create({
+        requestBody: fileMetadata,
+        media,
+        fields: 'id, name, webViewLink, webContentLink',
+        supportsAllDrives: true,
+      });
+
+      const fileId = file.data.id!;
+
+      // Make file accessible to anyone with the link
+      await drive.permissions.create({
+        fileId,
+        requestBody: { role: 'reader', type: 'anyone' },
+        supportsAllDrives: true,
+      });
+
+      const publicUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
+      logToFile(`Uploaded ${fileName} → ${fileId}`);
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              id: fileId,
+              name: file.data.name,
+              publicUrl,
+              webViewLink: file.data.webViewLink,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logToFile(`Error during drive.uploadFile: ${errorMessage}`);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ error: errorMessage }) }],
+      };
+    }
+  };
 }
