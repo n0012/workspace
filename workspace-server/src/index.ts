@@ -476,6 +476,212 @@ async function main() {
     slidesService.getSlideThumbnail,
   );
 
+  // Speaker notes tools — approach adapted from PR #235
+  // https://github.com/gemini-cli-extensions/workspace/pull/235 by @stefanoamorelli
+  server.registerTool(
+    'slides.getSpeakerNotes',
+    {
+      description:
+        'Retrieves speaker notes for every slide in a presentation. Returns an array of {slideIndex, slideObjectId, speakerNotesObjectId, notes} — one entry per slide. Use slideObjectId with slides.updateSpeakerNotes to write notes back.',
+      inputSchema: {
+        presentationId: z
+          .string()
+          .describe('The ID or URL of the presentation.'),
+      },
+    },
+    slidesService.getSpeakerNotes,
+  );
+
+  server.registerTool(
+    'slides.updateSpeakerNotes',
+    {
+      description:
+        'Writes speaker notes for a specific slide. Replaces any existing notes. Get slideObjectId from slides.getSpeakerNotes or slides.getMetadata.',
+      inputSchema: {
+        presentationId: z
+          .string()
+          .describe('The ID or URL of the presentation.'),
+        slideObjectId: z
+          .string()
+          .describe('The object ID of the slide to update (from getSpeakerNotes or getMetadata).'),
+        notes: z
+          .string()
+          .describe('The speaker notes text. Pass an empty string to clear existing notes.'),
+      },
+    },
+    slidesService.updateSpeakerNotes,
+  );
+
+  server.registerTool(
+    'slides.create',
+    {
+      description:
+        'Creates a new blank Google Slides presentation. Returns the presentation ID and URL.',
+      inputSchema: {
+        title: z.string().describe('The title for the new presentation.'),
+      },
+    },
+    slidesService.create,
+  );
+
+  server.registerTool(
+    'slides.batchUpdate',
+    {
+      description:
+        'Executes a batch of updates (create, modify, delete) on a Google Slides presentation. Takes an array of raw Slides API request objects.',
+      inputSchema: {
+        presentationId: z
+          .string()
+          .describe('The ID or URL of the presentation to modify.'),
+        requests: z
+          .string()
+          .describe(
+            'JSON string of an array of Slides API request objects (e.g., [{"createSlide":{}}, {"createShape":{...}}]). Will be parsed server-side.',
+          ),
+      },
+    },
+    slidesService.batchUpdate,
+  );
+
+  // Shared element schema for createFromJson
+  const slideElementSchema = z.object({
+    type: z.enum(['text', 'shape', 'image']).describe('Element type.'),
+    content: z
+      .string()
+      .optional()
+      .describe('Text content (for text elements).'),
+    shape_type: z
+      .string()
+      .optional()
+      .describe(
+        'Shape type (e.g., RECTANGLE, RIGHT_ARROW, TEXT_BOX). Default: RECTANGLE.',
+      ),
+    url: z.string().optional().describe('Image URL (for image elements).'),
+    layer: z
+      .number()
+      .optional()
+      .describe(
+        'Z-index layer for rendering order. Lower layers render first.',
+      ),
+    position: z
+      .object({
+        x: z.number().describe('X position in points.'),
+        y: z.number().describe('Y position in points.'),
+        w: z.number().describe('Width in points.'),
+        h: z.number().describe('Height in points.'),
+      })
+      .describe('Position and size on a 720x405 point grid.'),
+    style: z
+      .object({
+        size: z.number().optional().describe('Font size in points.'),
+        bold: z.boolean().optional().describe('Bold text.'),
+        italic: z.boolean().optional().describe('Italic text.'),
+        align: z
+          .enum(['START', 'CENTER', 'END'])
+          .optional()
+          .describe('Horizontal text alignment.'),
+        vertical_align: z
+          .enum(['TOP', 'MIDDLE', 'BOTTOM'])
+          .optional()
+          .describe('Vertical content alignment.'),
+        color: z
+          .object({
+            red: z.number(),
+            green: z.number(),
+            blue: z.number(),
+          })
+          .optional()
+          .describe('Text color (RGB 0-1).'),
+        bg_color: z
+          .object({
+            red: z.number(),
+            green: z.number(),
+            blue: z.number(),
+          })
+          .optional()
+          .describe('Shape background color (RGB 0-1).'),
+        border_color: z
+          .object({
+            red: z.number(),
+            green: z.number(),
+            blue: z.number(),
+          })
+          .optional()
+          .describe('Shape border color (RGB 0-1).'),
+        border_weight: z
+          .number()
+          .optional()
+          .describe('Border weight in points.'),
+        no_border: z
+          .boolean()
+          .optional()
+          .describe('Remove border from shape.'),
+        font_family: z
+          .string()
+          .optional()
+          .describe('Font family name (e.g. "Arial", "Roboto"). Defaults to "Arial".'),
+        underline: z.boolean().optional().describe('Underline text.'),
+        strikethrough: z.boolean().optional().describe('Strikethrough text.'),
+        indent: z
+          .number()
+          .optional()
+          .describe('Left indent of paragraph text in points (e.g. 18 for one level of bullet indentation).'),
+        bold_phrases: z
+          .array(z.string())
+          .optional()
+          .describe('Phrases within content to bold.'),
+        bold_until: z
+          .number()
+          .optional()
+          .describe('Bold text from start to this character index.'),
+        links: z
+          .array(
+            z.object({
+              text: z.string().describe('Link text to find in content.'),
+              url: z.string().describe('URL to link to.'),
+            }),
+          )
+          .optional()
+          .describe('Hyperlinks to apply to matching text.'),
+      })
+      .optional()
+      .describe('Styling options for the element.'),
+  });
+
+  server.registerTool(
+    'slides.createFromJson',
+    {
+      description:
+        'Creates one or more slides in a presentation from a JSON blueprint. Supports optional per-slide speaker_notes that are written automatically.\n\nFORMATS: {"slides":[{"elements":[...],"speaker_notes":"..."},...]} for multiple slides, or {"elements":[...]} for a single slide.\n\nCANVAS: 720×405 pt (16:9). Origin is top-left.\n\nELEMENT TYPES: type ("text"|"shape"|"image"), position ({x,y,w,h} in points), optional content, shape_type (e.g. "RECTANGLE","TEXT_BOX"), url (images), layer (z-index).\n\nCOLOR ALIASES — IMPORTANT: Use color aliases ("primary", "surface", "text", "blue", "red", etc.) instead of hardcoded RGB values. Aliases resolve to the Google brand palette automatically: near-black headers, Google Sans font, four brand accent colors. font_family:"theme" gives you Google Sans. Hardcoding RGB bypasses the palette entirely.\n\nSPEAKER NOTES (REQUIRED): Include "speaker_notes" in each slide object of the blueprint for automatic writing. If you omit them, the response will include action_required asking you to call slides.updateSpeakerNotes for each slideId. Either approach works — inline is simpler, but a second pass lets you focus on layout first and notes second. Write ~45 seconds of spoken content per slide (4-6 sentences): opening line, key points, transition to next slide. A deck without speaker notes is incomplete.\n\nDESIGN INTENT: Let the content drive the layout. A single strong idea may need only a title and whitespace. A comparison needs two columns. Avoid defaulting to the same structure every slide — vary density, emphasis, and composition to match what each slide is communicating.\n\nCONSISTENCY: Use the same theme, ~18pt margin rhythm, and font size hierarchy throughout. Consistency in the system lets individual slides be visually distinct without feeling disconnected.\n\nLESS IS MORE: Color is for emphasis, not decoration. Most slides should be mostly white/background with dark text. Use colored elements sparingly — a thin accent line, a highlighted key metric, a section label. Not every slide needs a colored header bar. Whitespace IS the design.\n\nTECHNICAL NOTES:\n- Layers: lower values render first (backgrounds=0, boxes=1, text=2+). Missing layers cause text to be hidden behind shapes.\n- Font sizes: titles ~20-24pt bold, subheadings ~12-14pt, body ~10-12pt.\n- Text boxes clip silently — size h generously.\n\nSTYLE PROPERTIES: size, bold, italic, underline, strikethrough, align (START|CENTER|END), vertical_align (TOP|MIDDLE|BOTTOM), indent, color, bg_color, border_color, border_weight, no_border, font_family ("theme" to inherit theme font), bold_phrases, bold_until, links ([{text,url}]).\n\nCOLOR ALIASES: "primary" (#202124 near-black), "primary_text" (white), "secondary" (#1A73E8 Blue 600), "text" (#1F1F1F), "text_muted" (#444746), "surface" (Blue 50), "surface_alt" (Green 50), "background" (white). Brand colors: "blue" (#4285F4), "red" (#EA4335), "yellow" (#FBBC05), "green" (#34A853). OR use RGB 0-1 objects for one-off colors. Image URLs with unresolved placeholders are replaced with a fallback icon.',
+      inputSchema: {
+        presentationId: z
+          .string()
+          .describe('The ID or URL of the presentation to add slides to.'),
+        slideJson: z
+          .string()
+          .describe(
+            'JSON string of the slide blueprint. Use {"slides":[{"elements":[...],"speaker_notes":"..."},...]} for multiple slides or {"elements":[...]} for one slide. REQUIRED: every slide object MUST include "speaker_notes" — a string with a full talk track (what the presenter should say, not just what the slide shows). The server writes notes automatically. Omitting speaker_notes produces an unprofessional deck.',
+          ),
+      },
+    },
+    slidesService.createFromJson,
+  );
+
+  registerTool(
+    'slides.insertImageSlide',
+    {
+      description:
+        'Inserts a local image file as a new full-bleed slide into an existing presentation. Handles Drive upload and image embedding internally — no separate upload step needed. Use for inserting concept sketches or visual slides at a specific position in the deck.',
+      inputSchema: {
+        presentationId: z.string().describe('The ID or URL of the presentation.'),
+        localImagePath: z.string().describe('Absolute path to the local image file to insert as a slide.'),
+        insertionIndex: z.number().optional().describe('Zero-based index where the slide should be inserted. Omit to append at end.'),
+        label: z.string().optional().describe('Optional text label to overlay on the slide (e.g. "CONCEPT SKETCH").'),
+      },
+    },
+    slidesService.insertImageSlide,
+  );
+
   // Sheets tools
   registerTool(
     'sheets.getText',
@@ -628,6 +834,32 @@ async function main() {
       },
     },
     driveService.renameFile,
+  );
+
+  registerTool(
+    'drive.uploadFile',
+    {
+      description:
+        'Uploads a local file to Google Drive (file stays private). Returns an OAuth-authenticated imageUrl that the Slides API can fetch directly — use this URL in slides.createFromJson image elements. Also returns the file ID and webViewLink.',
+      inputSchema: {
+        localPath: z
+          .string()
+          .describe('Absolute path to the local file to upload.'),
+        name: z
+          .string()
+          .optional()
+          .describe('Name for the file in Drive. Defaults to the local filename.'),
+        mimeType: z
+          .string()
+          .optional()
+          .describe('MIME type of the file (e.g. "image/png"). Defaults to application/octet-stream.'),
+        parentId: z
+          .string()
+          .optional()
+          .describe('Drive folder ID to upload into. Defaults to root.'),
+      },
+    },
+    driveService.uploadFile,
   );
 
   registerTool(

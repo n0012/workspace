@@ -639,4 +639,82 @@ export class DriveService {
       };
     }
   };
+
+  public uploadFile = async ({
+    localPath,
+    name,
+    mimeType,
+    parentId,
+  }: {
+    localPath: string;
+    name?: string;
+    mimeType?: string;
+    parentId?: string;
+  }) => {
+    logToFile(`Uploading file from ${localPath}`);
+    try {
+      const auth = await this.authManager.getAuthenticatedClient();
+      const drive = await this.getDriveClient();
+
+      const absolutePath = path.isAbsolute(localPath)
+        ? localPath
+        : path.join(PROJECT_ROOT, localPath);
+
+      if (!fs.existsSync(absolutePath)) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: `File not found: ${absolutePath}` }) }],
+        };
+      }
+
+      const fileName = name ?? path.basename(absolutePath);
+      const fileMime = mimeType ?? 'application/octet-stream';
+
+      const fileMetadata: drive_v3.Schema$File = { name: fileName };
+      if (parentId) fileMetadata.parents = [parentId];
+
+      const file = await drive.files.create({
+        requestBody: fileMetadata,
+        media: { mimeType: fileMime, body: fs.createReadStream(absolutePath) },
+        fields: 'id, name, webViewLink',
+        supportsAllDrives: true,
+      });
+
+      const fileId = file.data.id!;
+
+      // Grant anyoneWithLink:reader so the Slides API can fetch the image server-side.
+      // The Slides API createImage call requires a truly public URL — OAuth-embedded
+      // tokens are rejected. The file is trashed at end of build, so temporary
+      // public access is safe.
+      await drive.permissions.create({
+        fileId,
+        supportsAllDrives: true,
+        requestBody: { role: 'reader', type: 'anyone' },
+      });
+
+      const imageUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+
+      logToFile(`Uploaded ${fileName} → ${fileId} (public read granted)`);
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              id: fileId,
+              name: file.data.name,
+              imageUrl,   // use this in slides.createFromJson {"type":"image","url":imageUrl}
+              webViewLink: file.data.webViewLink,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logToFile(`Error during drive.uploadFile: ${errorMessage}`);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ error: errorMessage }) }],
+      };
+    }
+  };
 }

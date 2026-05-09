@@ -4,14 +4,92 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { google, slides_v1 } from 'googleapis';
+import { google, slides_v1, drive_v3 } from 'googleapis';
 import * as fs from 'node:fs/promises';
+import * as fsSync from 'node:fs';
 import * as path from 'node:path';
 import { request } from 'gaxios';
 import { AuthManager } from '../auth/AuthManager';
 import { logToFile } from '../utils/logger';
 import { extractDocId } from '../utils/IdUtils';
 import { gaxiosOptions } from '../utils/GaxiosConfig';
+import { PROJECT_ROOT } from '../utils/paths';
+
+// === Theme system ===
+
+type RGB = { red: number; green: number; blue: number };
+type ColorValue = RGB | string;
+
+interface Theme {
+  primary: RGB;       // Header / primary accent background
+  primaryText: RGB;   // Text on primary background
+  secondary: RGB;     // Secondary accent
+  secondaryText: RGB; // Text on secondary background
+  surface: RGB;       // Card / box background (primary tint)
+  surfaceAlt: RGB;    // Card / box background (secondary tint)
+  text: RGB;          // Default body text
+  textMuted: RGB;     // Muted / caption text
+  background: RGB;    // Slide background
+  fontFamily: string; // Default font family
+  // Extended palette — optional, used when alias is referenced
+  accent1?: RGB;
+  accent2?: RGB;
+  accent3?: RGB;
+  accent4?: RGB;
+}
+
+const THEMES: Record<string, Theme> = {
+  // Google brand palette — all four brand colors + neutral headers.
+  // Headers use near-black #202124, brand colors are accents.
+  google: {
+    primary:       { red: 0.125, green: 0.129, blue: 0.141 }, // #202124 near-black (headers)
+    primaryText:   { red: 1.000, green: 1.000, blue: 1.000 },
+    secondary:     { red: 0.102, green: 0.451, blue: 0.910 }, // #1A73E8 Google Blue 600 (accent)
+    secondaryText: { red: 1.000, green: 1.000, blue: 1.000 },
+    surface:       { red: 0.910, green: 0.941, blue: 0.996 }, // #E8F0FE Blue 50
+    surfaceAlt:    { red: 0.902, green: 0.957, blue: 0.918 }, // #E6F4EA Green 50
+    text:          { red: 0.122, green: 0.122, blue: 0.122 }, // #1F1F1F
+    textMuted:     { red: 0.267, green: 0.278, blue: 0.275 }, // #444746
+    background:    { red: 1.000, green: 1.000, blue: 1.000 },
+    fontFamily:    'Google Sans',
+    accent1:       { red: 0.263, green: 0.522, blue: 0.957 }, // #4285F4 Google Blue
+    accent2:       { red: 0.918, green: 0.263, blue: 0.208 }, // #EA4335 Google Red
+    accent3:       { red: 0.984, green: 0.737, blue: 0.020 }, // #FBBC05 Google Yellow
+    accent4:       { red: 0.204, green: 0.659, blue: 0.325 }, // #34A853 Google Green
+  },
+};
+
+const COLOR_ALIASES: Record<string, keyof Theme> = {
+  primary:        'primary',
+  primary_text:   'primaryText',
+  secondary:      'secondary',
+  secondary_text: 'secondaryText',
+  surface:        'surface',
+  surface_alt:    'surfaceAlt',
+  text:           'text',
+  text_muted:     'textMuted',
+  background:     'background',
+  accent1:        'accent1',
+  accent2:        'accent2',
+  accent3:        'accent3',
+  accent4:        'accent4',
+  // Semantic aliases for Google theme
+  blue:           'accent1',
+  red:            'accent2',
+  yellow:         'accent3',
+  green:          'accent4',
+};
+
+/**
+ * Resolve a color value: pass-through RGB objects, resolve string aliases via theme.
+ * Returns undefined if alias unknown or no theme active.
+ */
+function resolveColor(color: ColorValue | undefined, theme: Theme): RGB | undefined {
+  if (!color) return undefined;
+  if (typeof color !== 'string') return color as RGB;
+  const key = COLOR_ALIASES[color.toLowerCase()];
+  return key ? (theme[key] as RGB) : undefined;
+}
 
 export class SlidesService {
   constructor(private authManager: AuthManager) {}
@@ -280,6 +358,699 @@ export class SlidesService {
     }
   };
 
+  public create = async ({ title }: { title: string }) => {
+    logToFile(`[SlidesService] Creating new presentation: ${title}`);
+    try {
+      const slides = await this.getSlidesClient();
+      const response = await slides.presentations.create({
+        requestBody: { title },
+      });
+
+      const presId = response.data.presentationId!;
+      logToFile(
+        `[SlidesService] Created presentation: ${presId}`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              presentationId: presId,
+              title: response.data.title,
+              url: `https://docs.google.com/presentation/d/${presId}/edit`,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logToFile(
+        `[SlidesService] Error during slides.create: ${errorMessage}`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ error: errorMessage }),
+          },
+        ],
+      };
+    }
+  };
+
+  public batchUpdate = async ({
+    presentationId,
+    requests: rawRequests,
+  }: {
+    presentationId: string;
+    requests: string | slides_v1.Schema$Request[];
+  }) => {
+    const requests: slides_v1.Schema$Request[] =
+      typeof rawRequests === 'string' ? JSON.parse(rawRequests) : rawRequests;
+    logToFile(
+      `[SlidesService] Starting batchUpdate for presentation: ${presentationId} (${requests.length} requests)`,
+    );
+    try {
+      const id = extractDocId(presentationId) || presentationId;
+      const slides = await this.getSlidesClient();
+      const response = await slides.presentations.batchUpdate({
+        presentationId: id,
+        requestBody: { requests },
+      });
+
+      logToFile(
+        `[SlidesService] Finished batchUpdate for presentation: ${id}`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(response.data),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logToFile(
+        `[SlidesService] Error during slides.batchUpdate: ${errorMessage}`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ error: errorMessage }),
+          },
+        ],
+      };
+    }
+  };
+
+  private buildSlideRequests(
+    slideId: string,
+    elements: Array<{
+      type: string;
+      content?: string;
+      shape_type?: string;
+      url?: string;
+      layer?: number;
+      position: { x: number; y: number; w: number; h: number };
+      style?: {
+        size?: number;
+        bold?: boolean;
+        italic?: boolean;
+        align?: string;
+        vertical_align?: string;
+        color?: ColorValue;
+        bg_color?: ColorValue;
+        border_color?: ColorValue;
+        border_weight?: number;
+        no_border?: boolean;
+        font_family?: string;
+        underline?: boolean;
+        strikethrough?: boolean;
+        indent?: number;
+        bold_phrases?: string[];
+        bold_until?: number;
+        links?: Array<{ text: string; url: string }>;
+      };
+    }>,
+    objCounter: { value: number },
+    theme: Theme,
+  ): slides_v1.Schema$Request[] {
+    const requests: slides_v1.Schema$Request[] = [];
+
+    const getId = (prefix: string) => {
+      objCounter.value += 1;
+      return `${prefix}_${Date.now()}_${objCounter.value}`;
+    };
+
+    // Sort: shapes first, then images, then text; within each group by layer
+    const sortOrder = (el: { type: string; layer?: number }) => {
+      const layerVal = el.layer ?? 1;
+      const typeMap: Record<string, number> = {
+        shape: 0,
+        image: 1,
+        text: 2,
+      };
+      const typeVal = typeMap[el.type] ?? 3;
+      return layerVal * 10 + typeVal;
+    };
+
+    const sorted = [...elements].sort(
+      (a, b) => sortOrder(a) - sortOrder(b),
+    );
+
+    for (const el of sorted) {
+      const pos = el.position;
+      const style = el.style || {};
+
+      if (el.type === 'shape') {
+        const objId = getId('sh');
+
+        requests.push({
+          createShape: {
+            objectId: objId,
+            shapeType: (el.shape_type as string) || 'RECTANGLE',
+            elementProperties: {
+              pageObjectId: slideId,
+              size: {
+                height: { magnitude: pos.h, unit: 'PT' },
+                width: { magnitude: pos.w, unit: 'PT' },
+              },
+              transform: {
+                scaleX: 1,
+                scaleY: 1,
+                translateX: pos.x,
+                translateY: pos.y,
+                unit: 'PT',
+              },
+            },
+          },
+        });
+
+        const props: any = {};
+        const fields: string[] = [];
+
+        const bgColor = resolveColor(style.bg_color, theme);
+        if (bgColor) {
+          props.shapeBackgroundFill = {
+            solidFill: { color: { rgbColor: bgColor } },
+          };
+          fields.push('shapeBackgroundFill.solidFill.color');
+        }
+
+        const borderColor = resolveColor(style.border_color, theme);
+        if (borderColor) {
+          props.outline = {
+            outlineFill: {
+              solidFill: { color: { rgbColor: borderColor } },
+            },
+            weight: {
+              magnitude: style.border_weight ?? 1,
+              unit: 'PT',
+            },
+          };
+          fields.push(
+            'outline.outlineFill.solidFill.color',
+            'outline.weight',
+          );
+        } else if (style.no_border) {
+          props.outline = { propertyState: 'NOT_RENDERED' };
+          fields.push('outline.propertyState');
+        }
+
+        if (style.vertical_align) {
+          props.contentAlignment = style.vertical_align;
+          fields.push('contentAlignment');
+        }
+
+        if (fields.length > 0) {
+          requests.push({
+            updateShapeProperties: {
+              objectId: objId,
+              shapeProperties: props,
+              fields: fields.join(','),
+            },
+          });
+        }
+      } else if (el.type === 'image') {
+        const objId = getId('img');
+        // Sanitize URLs that contain unresolved template placeholders (e.g. from LLM output)
+        let imageUrl = el.url ?? '';
+        if (imageUrl.includes('{') || imageUrl.includes('%7B')) {
+          imageUrl = 'https://img.icons8.com/m_rounded/512/4285F4/info.png';
+        }
+
+        requests.push({
+          createImage: {
+            objectId: objId,
+            url: imageUrl,
+            elementProperties: {
+              pageObjectId: slideId,
+              size: {
+                height: { magnitude: pos.h, unit: 'PT' },
+                width: { magnitude: pos.w, unit: 'PT' },
+              },
+              transform: {
+                scaleX: 1,
+                scaleY: 1,
+                translateX: pos.x,
+                translateY: pos.y,
+                unit: 'PT',
+              },
+            },
+          },
+        });
+      } else if (el.type === 'text') {
+        const objId = getId('tx');
+        const content = el.content || '';
+
+        requests.push({
+          createShape: {
+            objectId: objId,
+            shapeType: 'TEXT_BOX',
+            elementProperties: {
+              pageObjectId: slideId,
+              size: {
+                height: { magnitude: pos.h, unit: 'PT' },
+                width: { magnitude: pos.w, unit: 'PT' },
+              },
+              transform: {
+                scaleX: 1,
+                scaleY: 1,
+                translateX: pos.x,
+                translateY: pos.y,
+                unit: 'PT',
+              },
+            },
+          },
+        });
+
+        requests.push({
+          insertText: { objectId: objId, text: content },
+        });
+
+        // Base text style
+        requests.push({
+          updateTextStyle: {
+            objectId: objId,
+            style: {
+              fontSize: { magnitude: style.size ?? 11, unit: 'PT' },
+              bold: style.bold ?? false,
+              italic: style.italic ?? false,
+              foregroundColor: {
+                opaqueColor: {
+                  rgbColor: resolveColor(style.color, theme) ?? theme.text,
+                },
+              },
+              fontFamily: style.font_family === 'theme'
+                ? theme.fontFamily
+                : (style.font_family ?? theme.fontFamily),
+              underline: style.underline ?? false,
+              strikethrough: style.strikethrough ?? false,
+            },
+            fields: 'fontSize,bold,italic,underline,strikethrough,foregroundColor,fontFamily',
+          },
+        });
+
+        // Paragraph style
+        requests.push({
+          updateParagraphStyle: {
+            objectId: objId,
+            style: {
+              alignment: style.align ?? 'START',
+              ...(style.indent !== undefined && {
+                indentStart: { magnitude: style.indent, unit: 'PT' },
+              }),
+            },
+            fields:
+              style.indent !== undefined ? 'alignment,indentStart' : 'alignment',
+          },
+        });
+
+        // Vertical alignment
+        if (style.vertical_align) {
+          requests.push({
+            updateShapeProperties: {
+              objectId: objId,
+              shapeProperties: {
+                contentAlignment:
+                  style.vertical_align as slides_v1.Schema$ShapeProperties['contentAlignment'],
+              },
+              fields: 'contentAlignment',
+            },
+          });
+        }
+
+        // Bold phrases
+        if (style.bold_phrases) {
+          for (const phrase of style.bold_phrases) {
+            let searchFrom = 0;
+            while (true) {
+              const idx = content.indexOf(phrase, searchFrom);
+              if (idx === -1) break;
+              requests.push({
+                updateTextStyle: {
+                  objectId: objId,
+                  style: { bold: true },
+                  textRange: {
+                    type: 'FIXED_RANGE',
+                    startIndex: idx,
+                    endIndex: idx + phrase.length,
+                  },
+                  fields: 'bold',
+                },
+              });
+              searchFrom = idx + 1;
+            }
+          }
+        }
+
+        // Bold until (legacy)
+        if (style.bold_until) {
+          requests.push({
+            updateTextStyle: {
+              objectId: objId,
+              style: { bold: true },
+              textRange: {
+                type: 'FIXED_RANGE',
+                startIndex: 0,
+                endIndex: style.bold_until,
+              },
+              fields: 'bold',
+            },
+          });
+        }
+
+        // Links
+        if (style.links) {
+          for (const linkDef of style.links) {
+            let searchFrom = 0;
+            while (true) {
+              const idx = content.indexOf(linkDef.text, searchFrom);
+              if (idx === -1) break;
+              requests.push({
+                updateTextStyle: {
+                  objectId: objId,
+                  style: {
+                    link: { url: linkDef.url },
+                  },
+                  textRange: {
+                    type: 'FIXED_RANGE',
+                    startIndex: idx,
+                    endIndex: idx + linkDef.text.length,
+                  },
+                  fields: 'link',
+                },
+              });
+              searchFrom = idx + 1;
+            }
+          }
+        }
+      }
+    }
+
+    return requests;
+  }
+
+  public createFromJson = async ({
+    presentationId,
+    slideJson: rawSlideJson,
+  }: {
+    presentationId: string;
+    slideJson: string | Record<string, unknown>;
+  }) => {
+    try {
+      const id = extractDocId(presentationId) || presentationId;
+      const slideJson: Record<string, unknown> =
+        typeof rawSlideJson === 'string'
+          ? JSON.parse(rawSlideJson)
+          : rawSlideJson;
+
+      const theme: Theme = THEMES['google'];
+
+      // Normalize: accept either slides[] or top-level elements[] (backward compat)
+      const slideDefs = (slideJson as any).slides
+        ? (slideJson as any).slides
+        : [{ elements: (slideJson as any).elements || [] }];
+
+      logToFile(
+        `[SlidesService] Starting createFromJson for presentation: ${id} (${slideDefs.length} slides)`,
+      );
+
+      const requests: slides_v1.Schema$Request[] = [];
+      const slideIds: string[] = [];
+      const objCounter = { value: 0 };
+
+      for (let i = 0; i < slideDefs.length; i++) {
+        const slideId = `slide_${Date.now()}_${i}`;
+        slideIds.push(slideId);
+
+        requests.push({
+          createSlide: {
+            objectId: slideId,
+            // No insertionIndex — append to end. Omitting it is required when
+            // createFromJson is called once per slide (i is always 0), since
+            // a fixed insertionIndex:1 would reverse the slide order.
+            slideLayoutReference: { predefinedLayout: 'BLANK' },
+          },
+        });
+
+        requests.push(
+          ...this.buildSlideRequests(slideId, slideDefs[i].elements, objCounter, theme),
+        );
+
+      }
+
+      // Execute the batch update to create slides + elements
+      const slides = await this.getSlidesClient();
+      const response = await slides.presentations.batchUpdate({
+        presentationId: id,
+        requestBody: { requests },
+      });
+
+      // Write speaker notes for any slide that has them in the blueprint
+      const notesSlides = slideDefs
+        .map((def: any, i: number) => ({ notes: def.speaker_notes, slideId: slideIds[i] }))
+        .filter((s: any) => s.notes);
+
+      if (notesSlides.length > 0) {
+        logToFile(
+          `[SlidesService] Writing speaker notes for ${notesSlides.length} slides`,
+        );
+        // Fetch the presentation to get speakerNotesObjectIds for the new slides
+        const pres = await slides.presentations.get({
+          presentationId: id,
+          fields:
+            'slides(objectId,slideProperties(notesPage(notesProperties(speakerNotesObjectId),pageElements(objectId,shape(text)))))',
+        });
+
+        const noteRequests: slides_v1.Schema$Request[] = [];
+        for (const { notes, slideId } of notesSlides) {
+          const slide = pres.data.slides?.find((s) => s.objectId === slideId);
+          const notesObjId =
+            slide?.slideProperties?.notesPage?.notesProperties?.speakerNotesObjectId;
+          if (!notesObjId) continue;
+
+          // Clear existing notes text if any
+          const notesShape = slide?.slideProperties?.notesPage?.pageElements?.find(
+            (el) => el.objectId === notesObjId,
+          );
+          if (notesShape?.shape?.text?.textElements?.length) {
+            noteRequests.push({
+              deleteText: { objectId: notesObjId, textRange: { type: 'ALL' } },
+            });
+          }
+          noteRequests.push({
+            insertText: { objectId: notesObjId, insertionIndex: 0, text: notes },
+          });
+        }
+
+        if (noteRequests.length > 0) {
+          await slides.presentations.batchUpdate({
+            presentationId: id,
+            requestBody: { requests: noteRequests },
+          });
+          logToFile(
+            `[SlidesService] Wrote speaker notes for ${notesSlides.length} slides`,
+          );
+        }
+      }
+
+      // Delete the default blank slide ("p") that Google creates with new presentations
+      try {
+        await slides.presentations.batchUpdate({
+          presentationId: id,
+          requestBody: {
+            requests: [{ deleteObject: { objectId: 'p' } }],
+          },
+        });
+        logToFile('[SlidesService] Deleted default blank slide "p"');
+      } catch {
+        // Not critical — slide "p" may not exist (already deleted or presentation wasn't new)
+      }
+
+      const presLink = `https://docs.google.com/presentation/d/${id}/edit`;
+      logToFile(
+        `[SlidesService] Finished createFromJson for presentation: ${id}, ${slideIds.length} slides created`,
+      );
+
+      const hasNotes = notesSlides.length > 0;
+      const result: Record<string, unknown> = {
+        slideIds,
+        presentationLink: presLink,
+        slidesCreated: slideIds.length,
+        repliesCount: response.data.replies?.length ?? 0,
+      };
+
+      if (!hasNotes && slideIds.length > 0) {
+        result.speakerNotesStatus = 'MISSING';
+        result.action_required =
+          'No speaker notes were provided. Call slides.updateSpeakerNotes for each slideId above to add a talk track. A professional deck requires speaker notes on every slide.';
+      } else if (hasNotes) {
+        result.speakerNotesStatus = 'WRITTEN';
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logToFile(
+        `[SlidesService] Error during slides.createFromJson: ${errorMessage}`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ error: errorMessage }),
+          },
+        ],
+      };
+    }
+  };
+
+  // Speaker notes tools — approach adapted from
+  // https://github.com/gemini-cli-extensions/workspace/pull/235
+  // by @stefanoamorelli (MIT licence, same as this project).
+
+  private formatResult(data: unknown) {
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(data) }],
+    };
+  }
+
+  private formatError(method: string, error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    logToFile(`[SlidesService] Error during ${method}: ${msg}`);
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({ error: msg }) }],
+    };
+  }
+
+  public getSpeakerNotes = async ({
+    presentationId,
+  }: {
+    presentationId: string;
+  }) => {
+    logToFile(`[SlidesService] Getting speaker notes: ${presentationId}`);
+    try {
+      const id = extractDocId(presentationId) || presentationId;
+      const slides = await this.getSlidesClient();
+
+      const presentation = await slides.presentations.get({
+        presentationId: id,
+        fields:
+          'slides(objectId,slideProperties(notesPage(notesProperties(speakerNotesObjectId),pageElements(objectId,shape(text)))))',
+      });
+
+      const notesPerSlide = (presentation.data.slides ?? []).map(
+        (slide, index) => {
+          const notesPage = slide.slideProperties?.notesPage;
+          const speakerNotesObjectId =
+            notesPage?.notesProperties?.speakerNotesObjectId;
+
+          let notesText = '';
+          if (speakerNotesObjectId && notesPage?.pageElements) {
+            const notesShape = notesPage.pageElements.find(
+              (el) => el.objectId === speakerNotesObjectId,
+            );
+            if (notesShape?.shape?.text) {
+              notesText = this.extractTextFromTextContent(
+                notesShape.shape.text,
+              ).trim();
+            }
+          }
+
+          return {
+            slideIndex: index + 1,
+            slideObjectId: slide.objectId,
+            speakerNotesObjectId,
+            notes: notesText,
+          };
+        },
+      );
+
+      logToFile(`[SlidesService] Retrieved speaker notes: ${id}`);
+      return this.formatResult({ presentationId: id, slides: notesPerSlide });
+    } catch (error) {
+      return this.formatError('slides.getSpeakerNotes', error);
+    }
+  };
+
+  public updateSpeakerNotes = async ({
+    presentationId,
+    slideObjectId,
+    notes,
+  }: {
+    presentationId: string;
+    slideObjectId: string;
+    notes: string;
+  }) => {
+    logToFile(
+      `[SlidesService] Updating speaker notes for slide ${slideObjectId}`,
+    );
+    try {
+      const id = extractDocId(presentationId) || presentationId;
+      const slides = await this.getSlidesClient();
+
+      const presentation = await slides.presentations.get({
+        presentationId: id,
+        fields:
+          'slides(objectId,slideProperties(notesPage(notesProperties(speakerNotesObjectId),pageElements(objectId,shape(text)))))',
+      });
+
+      const slide = presentation.data.slides?.find(
+        (s) => s.objectId === slideObjectId,
+      );
+      if (!slide) throw new Error(`Slide not found: ${slideObjectId}`);
+
+      const speakerNotesObjectId =
+        slide.slideProperties?.notesPage?.notesProperties?.speakerNotesObjectId;
+      if (!speakerNotesObjectId)
+        throw new Error(`Speaker notes object not found for slide: ${slideObjectId}`);
+
+      const requests: slides_v1.Schema$Request[] = [];
+
+      const notesShape = slide.slideProperties?.notesPage?.pageElements?.find(
+        (el) => el.objectId === speakerNotesObjectId,
+      );
+      if (notesShape?.shape?.text?.textElements?.length) {
+        requests.push({
+          deleteText: {
+            objectId: speakerNotesObjectId,
+            textRange: { type: 'ALL' },
+          },
+        });
+      }
+
+      if (notes.length > 0) {
+        requests.push({
+          insertText: {
+            objectId: speakerNotesObjectId,
+            insertionIndex: 0,
+            text: notes,
+          },
+        });
+      }
+
+      if (requests.length > 0) {
+        await slides.presentations.batchUpdate({
+          presentationId: id,
+          requestBody: { requests },
+        });
+      }
+
+      logToFile(`[SlidesService] Updated speaker notes for slide: ${slideObjectId}`);
+      return this.formatResult({ presentationId: id, slideObjectId, speakerNotesObjectId, notes });
+    } catch (error) {
+      return this.formatError('slides.updateSpeakerNotes', error);
+    }
+  };
+
   public getSlideThumbnail = async ({
     presentationId,
     slideObjectId,
@@ -339,6 +1110,148 @@ export class SlidesService {
           },
         ],
       };
+    }
+  };
+
+  /**
+   * Insert a local image as a new full-bleed slide at a specific position.
+   * Handles the Drive upload internally — the caller only provides a local path.
+   */
+  public insertImageSlide = async ({
+    presentationId,
+    localImagePath,
+    insertionIndex,
+    label,
+  }: {
+    presentationId: string;
+    localImagePath: string;
+    insertionIndex?: number;
+    label?: string;
+  }) => {
+    logToFile(`[SlidesService] insertImageSlide: ${localImagePath} → ${presentationId}`);
+    try {
+      const auth = await this.authManager.getAuthenticatedClient();
+      const id = extractDocId(presentationId) || presentationId;
+
+      const absPath = path.isAbsolute(localImagePath)
+        ? localImagePath
+        : path.join(PROJECT_ROOT, localImagePath);
+
+      if (!fsSync.existsSync(absPath)) {
+        return this.formatResult({ error: `File not found: ${absPath}` });
+      }
+
+      // 1. Upload image to Drive using the same OAuth session
+      const drive = google.drive({ version: 'v3', ...{ ...gaxiosOptions, auth } });
+      const mimeType = absPath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+      const uploadResp = await drive.files.create({
+        requestBody: { name: path.basename(absPath) },
+        media: { mimeType, body: fsSync.createReadStream(absPath) },
+        fields: 'id',
+        supportsAllDrives: true,
+      });
+      const fileId = uploadResp.data.id!;
+
+      // 2. Get an OAuth-authenticated URL the Slides API can fetch
+      const tokenResp = await auth.getAccessToken();
+      const imageUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&access_token=${tokenResp.token}`;
+
+      // 3. Build batchUpdate requests: createSlide then createImage on it
+      const slides = await this.getSlidesClient();
+      const slideObjId = `img_slide_${Date.now()}`;
+      const imgObjId   = `img_el_${Date.now()}`;
+
+      const requests: slides_v1.Schema$Request[] = [
+        {
+          createSlide: {
+            objectId: slideObjId,
+            ...(insertionIndex !== undefined ? { insertionIndex } : {}),
+          },
+        },
+        {
+          createImage: {
+            objectId: imgObjId,
+            url: imageUrl,
+            elementProperties: {
+              pageObjectId: slideObjId,
+              size: {
+                width:  { magnitude: 720, unit: 'PT' },
+                height: { magnitude: 405, unit: 'PT' },
+              },
+              transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0, unit: 'PT' },
+            },
+          },
+        },
+      ];
+
+      // Optional: add a small label chip (e.g. "CONCEPT SKETCH")
+      if (label) {
+        const chipId  = `chip_bg_${Date.now()}`;
+        const textId  = `chip_txt_${Date.now()}`;
+        requests.push(
+          {
+            createShape: {
+              objectId: chipId,
+              shapeType: 'RECTANGLE',
+              elementProperties: {
+                pageObjectId: slideObjId,
+                size: { width: { magnitude: 140, unit: 'PT' }, height: { magnitude: 22, unit: 'PT' } },
+                transform: { scaleX: 1, scaleY: 1, translateX: 570, translateY: 10, unit: 'PT' },
+              },
+            },
+          },
+          {
+            updateShapeProperties: {
+              objectId: chipId,
+              fields: 'shapeBackgroundFill,outline',
+              shapeProperties: {
+                shapeBackgroundFill: {
+                  solidFill: { color: { rgbColor: { red: 0.102, green: 0.451, blue: 0.910 } } },
+                },
+                outline: { outlineFill: { solidFill: { color: { rgbColor: {} } } }, weight: { magnitude: 0, unit: 'PT' } },
+              },
+            },
+          },
+          {
+            insertText: { objectId: chipId, text: label },
+          },
+          {
+            updateTextStyle: {
+              objectId: chipId,
+              fields: 'bold,fontSize,foregroundColor',
+              style: {
+                bold: true,
+                fontSize: { magnitude: 9, unit: 'PT' },
+                foregroundColor: { opaqueColor: { rgbColor: { red: 1, green: 1, blue: 1 } } },
+              },
+            },
+          },
+          {
+            updateParagraphStyle: {
+              objectId: chipId,
+              fields: 'alignment',
+              style: { alignment: 'CENTER' },
+            },
+          },
+        );
+      }
+
+      await slides.presentations.batchUpdate({
+        presentationId: id,
+        requestBody: { requests },
+      });
+
+      // Clean up the Drive file — it's already embedded in the slide
+      await drive.files.delete({ fileId, supportsAllDrives: true }).catch(() => {});
+
+      logToFile(`[SlidesService] insertImageSlide done: slideId=${slideObjId}`);
+      return this.formatResult({
+        slideId: slideObjId,
+        insertionIndex,
+        message: `Image slide inserted at position ${insertionIndex ?? 'end'}`,
+      });
+    } catch (error) {
+      return this.formatError('slides.insertImageSlide', error);
     }
   };
 }
