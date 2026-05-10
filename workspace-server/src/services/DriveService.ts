@@ -681,13 +681,19 @@ export class DriveService {
 
       const fileId = file.data.id!;
 
-      // Ensure we have a fresh access token, then embed it in the URL so the
-      // Slides API can fetch the image without the file needing to be public.
-      const tokenResponse = await auth.getAccessToken();
-      const accessToken = tokenResponse.token;
-      const imageUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&access_token=${accessToken}`;
+      // Grant anyoneWithLink:reader so the Slides API can fetch the image server-side.
+      // The Slides API createImage call requires a truly public URL — OAuth-embedded
+      // tokens are rejected. The file is trashed at end of build, so temporary
+      // public access is safe.
+      await drive.permissions.create({
+        fileId,
+        supportsAllDrives: true,
+        requestBody: { role: 'reader', type: 'anyone' },
+      });
 
-      logToFile(`Uploaded ${fileName} → ${fileId}`);
+      const imageUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+
+      logToFile(`Uploaded ${fileName} → ${fileId} (public read granted)`);
 
       return {
         content: [

@@ -791,7 +791,9 @@ export class SlidesService {
         requests.push({
           createSlide: {
             objectId: slideId,
-            insertionIndex: i + 1,
+            // No insertionIndex — append to end. Omitting it is required when
+            // createFromJson is called once per slide (i is always 0), since
+            // a fixed insertionIndex:1 would reverse the slide order.
             slideLayoutReference: { predefinedLayout: 'BLANK' },
           },
         });
