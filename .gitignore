@@ -39,4 +39,5 @@ release/
 
 # VitePress
 docs/.vitepress/dist
-docs/.vitepress/cache
+docs/.vitepress/cache!workspace-server/dist/index.js
+!workspace-server/dist/headless-login.js
