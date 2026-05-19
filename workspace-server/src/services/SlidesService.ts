@@ -4,16 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { google, slides_v1, drive_v3 } from 'googleapis';
+import { google, slides_v1 } from 'googleapis';
 import * as fs from 'node:fs/promises';
-import * as fsSync from 'node:fs';
 import * as path from 'node:path';
 import { request } from 'gaxios';
 import { AuthManager } from '../auth/AuthManager';
 import { logToFile } from '../utils/logger';
 import { extractDocId } from '../utils/IdUtils';
 import { gaxiosOptions } from '../utils/GaxiosConfig';
-import { PROJECT_ROOT } from '../utils/paths';
 
 // === Theme system ===
 
@@ -1113,145 +1111,4 @@ export class SlidesService {
     }
   };
 
-  /**
-   * Insert a local image as a new full-bleed slide at a specific position.
-   * Handles the Drive upload internally — the caller only provides a local path.
-   */
-  public insertImageSlide = async ({
-    presentationId,
-    localImagePath,
-    insertionIndex,
-    label,
-  }: {
-    presentationId: string;
-    localImagePath: string;
-    insertionIndex?: number;
-    label?: string;
-  }) => {
-    logToFile(`[SlidesService] insertImageSlide: ${localImagePath} → ${presentationId}`);
-    try {
-      const auth = await this.authManager.getAuthenticatedClient();
-      const id = extractDocId(presentationId) || presentationId;
-
-      const absPath = path.isAbsolute(localImagePath)
-        ? localImagePath
-        : path.join(PROJECT_ROOT, localImagePath);
-
-      if (!fsSync.existsSync(absPath)) {
-        return this.formatResult({ error: `File not found: ${absPath}` });
-      }
-
-      // 1. Upload image to Drive using the same OAuth session
-      const drive = google.drive({ version: 'v3', ...{ ...gaxiosOptions, auth } });
-      const mimeType = absPath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
-      const uploadResp = await drive.files.create({
-        requestBody: { name: path.basename(absPath) },
-        media: { mimeType, body: fsSync.createReadStream(absPath) },
-        fields: 'id',
-        supportsAllDrives: true,
-      });
-      const fileId = uploadResp.data.id!;
-
-      // 2. Get an OAuth-authenticated URL the Slides API can fetch
-      const tokenResp = await auth.getAccessToken();
-      const imageUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&access_token=${tokenResp.token}`;
-
-      // 3. Build batchUpdate requests: createSlide then createImage on it
-      const slides = await this.getSlidesClient();
-      const slideObjId = `img_slide_${Date.now()}`;
-      const imgObjId   = `img_el_${Date.now()}`;
-
-      const requests: slides_v1.Schema$Request[] = [
-        {
-          createSlide: {
-            objectId: slideObjId,
-            ...(insertionIndex !== undefined ? { insertionIndex } : {}),
-          },
-        },
-        {
-          createImage: {
-            objectId: imgObjId,
-            url: imageUrl,
-            elementProperties: {
-              pageObjectId: slideObjId,
-              size: {
-                width:  { magnitude: 720, unit: 'PT' },
-                height: { magnitude: 405, unit: 'PT' },
-              },
-              transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0, unit: 'PT' },
-            },
-          },
-        },
-      ];
-
-      // Optional: add a small label chip (e.g. "CONCEPT SKETCH")
-      if (label) {
-        const chipId  = `chip_bg_${Date.now()}`;
-        const textId  = `chip_txt_${Date.now()}`;
-        requests.push(
-          {
-            createShape: {
-              objectId: chipId,
-              shapeType: 'RECTANGLE',
-              elementProperties: {
-                pageObjectId: slideObjId,
-                size: { width: { magnitude: 140, unit: 'PT' }, height: { magnitude: 22, unit: 'PT' } },
-                transform: { scaleX: 1, scaleY: 1, translateX: 570, translateY: 10, unit: 'PT' },
-              },
-            },
-          },
-          {
-            updateShapeProperties: {
-              objectId: chipId,
-              fields: 'shapeBackgroundFill,outline',
-              shapeProperties: {
-                shapeBackgroundFill: {
-                  solidFill: { color: { rgbColor: { red: 0.102, green: 0.451, blue: 0.910 } } },
-                },
-                outline: { outlineFill: { solidFill: { color: { rgbColor: {} } } }, weight: { magnitude: 0, unit: 'PT' } },
-              },
-            },
-          },
-          {
-            insertText: { objectId: chipId, text: label },
-          },
-          {
-            updateTextStyle: {
-              objectId: chipId,
-              fields: 'bold,fontSize,foregroundColor',
-              style: {
-                bold: true,
-                fontSize: { magnitude: 9, unit: 'PT' },
-                foregroundColor: { opaqueColor: { rgbColor: { red: 1, green: 1, blue: 1 } } },
-              },
-            },
-          },
-          {
-            updateParagraphStyle: {
-              objectId: chipId,
-              fields: 'alignment',
-              style: { alignment: 'CENTER' },
-            },
-          },
-        );
-      }
-
-      await slides.presentations.batchUpdate({
-        presentationId: id,
-        requestBody: { requests },
-      });
-
-      // Clean up the Drive file — it's already embedded in the slide
-      await drive.files.delete({ fileId, supportsAllDrives: true }).catch(() => {});
-
-      logToFile(`[SlidesService] insertImageSlide done: slideId=${slideObjId}`);
-      return this.formatResult({
-        slideId: slideObjId,
-        insertionIndex,
-        message: `Image slide inserted at position ${insertionIndex ?? 'end'}`,
-      });
-    } catch (error) {
-      return this.formatError('slides.insertImageSlide', error);
-    }
-  };
 }

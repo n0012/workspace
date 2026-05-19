@@ -219,7 +219,6 @@ export const FEATURE_GROUPS: readonly FeatureGroup[] = [
       'slides.batchUpdate',
       'slides.createFromJson',
       'slides.updateSpeakerNotes',
-      'slides.insertImageSlide',
     ],
     defaultEnabled: false,
   },
