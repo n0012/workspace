@@ -667,21 +667,6 @@ async function main() {
     slidesService.createFromJson,
   );
 
-  registerTool(
-    'slides.insertImageSlide',
-    {
-      description:
-        'Inserts a local image file as a new full-bleed slide into an existing presentation. Handles Drive upload and image embedding internally — no separate upload step needed. Use for inserting concept sketches or visual slides at a specific position in the deck.',
-      inputSchema: {
-        presentationId: z.string().describe('The ID or URL of the presentation.'),
-        localImagePath: z.string().describe('Absolute path to the local image file to insert as a slide.'),
-        insertionIndex: z.number().optional().describe('Zero-based index where the slide should be inserted. Omit to append at end.'),
-        label: z.string().optional().describe('Optional text label to overlay on the slide (e.g. "CONCEPT SKETCH").'),
-      },
-    },
-    slidesService.insertImageSlide,
-  );
-
   // Sheets tools
   registerTool(
     'sheets.getText',
