@@ -840,7 +840,7 @@ async function main() {
     'drive.uploadFile',
     {
       description:
-        'Uploads a local file to Google Drive (file stays private). Returns an OAuth-authenticated imageUrl that the Slides API can fetch directly — use this URL in slides.createFromJson image elements. Also returns the file ID and webViewLink.',
+        'Uploads a local file to Google Drive. File is PRIVATE by default — only the authenticated user can read it. To make it fetchable by the Slides API (or any other public consumer), call drive.addPublicAccess separately. Returns id, name, and webViewLink.',
       inputSchema: {
         localPath: z
           .string()
@@ -860,6 +860,30 @@ async function main() {
       },
     },
     driveService.uploadFile,
+  );
+
+  registerTool(
+    'drive.addPublicAccess',
+    {
+      description:
+        'Grants anyone:reader sharing on a Drive file, making it readable by anyone with the link (including unauthenticated services like the Slides API image fetcher). Returns a public imageUrl suitable for slides.createFromJson image elements. ALWAYS pair with drive.removePublicAccess when done to close the share. Subject to Workspace org policy — corporate domains often block this (publishOutNotPermitted error).',
+      inputSchema: {
+        fileId: z.string().describe('The ID or URL of the Drive file.'),
+      },
+    },
+    driveService.addPublicAccess,
+  );
+
+  registerTool(
+    'drive.removePublicAccess',
+    {
+      description:
+        'Revokes any anyone-type sharing permissions on a Drive file (e.g. anyone:reader granted by drive.uploadFile). File remains in Drive — only the public link is removed. Returns the list of removed permission IDs. Idempotent: returns empty list if no public permissions exist.',
+      inputSchema: {
+        fileId: z.string().describe('The ID or URL of the Drive file.'),
+      },
+    },
+    driveService.removePublicAccess,
   );
 
   registerTool(

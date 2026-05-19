@@ -653,7 +653,6 @@ export class DriveService {
   }) => {
     logToFile(`Uploading file from ${localPath}`);
     try {
-      const auth = await this.authManager.getAuthenticatedClient();
       const drive = await this.getDriveClient();
 
       const absolutePath = path.isAbsolute(localPath)
@@ -680,21 +679,11 @@ export class DriveService {
       });
 
       const fileId = file.data.id!;
+      logToFile(`Uploaded ${fileName} → ${fileId} (private)`);
 
-      // Grant anyoneWithLink:reader so the Slides API can fetch the image server-side.
-      // The Slides API createImage call requires a truly public URL — OAuth-embedded
-      // tokens are rejected. The file is trashed at end of build, so temporary
-      // public access is safe.
-      await drive.permissions.create({
-        fileId,
-        supportsAllDrives: true,
-        requestBody: { role: 'reader', type: 'anyone' },
-      });
-
-      const imageUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
-
-      logToFile(`Uploaded ${fileName} → ${fileId} (public read granted)`);
-
+      // Files are uploaded PRIVATE. To make the file fetchable by the Slides API
+      // (or any other public consumer), call drive.addPublicAccess separately.
+      // Then call drive.removePublicAccess when done to close the share window.
       return {
         content: [
           {
@@ -702,7 +691,6 @@ export class DriveService {
             text: JSON.stringify({
               id: fileId,
               name: file.data.name,
-              imageUrl,   // use this in slides.createFromJson {"type":"image","url":imageUrl}
               webViewLink: file.data.webViewLink,
             }),
           },
@@ -715,6 +703,73 @@ export class DriveService {
       return {
         content: [{ type: 'text' as const, text: JSON.stringify({ error: errorMessage }) }],
       };
+    }
+  };
+
+  public addPublicAccess = async ({ fileId }: { fileId: string }) => {
+    logToFile(`Granting anyone:reader on Drive file: ${fileId}`);
+    try {
+      const drive = await this.getDriveClient();
+      const id = extractDocumentId(fileId);
+      const perm = await drive.permissions.create({
+        fileId: id,
+        supportsAllDrives: true,
+        requestBody: { role: 'reader', type: 'anyone' },
+        fields: 'id',
+      });
+      const imageUrl = `https://drive.google.com/uc?export=download&id=${id}`;
+      logToFile(`Granted anyone:reader on ${id} (perm ${perm.data.id})`);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              id,
+              permissionId: perm.data.id,
+              imageUrl,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      return this.handleError('drive.addPublicAccess', error);
+    }
+  };
+
+  public removePublicAccess = async ({ fileId }: { fileId: string }) => {
+    logToFile(`Removing public access from Drive file: ${fileId}`);
+    try {
+      const drive = await this.getDriveClient();
+      const id = extractDocumentId(fileId);
+      const perms = await drive.permissions.list({
+        fileId: id,
+        supportsAllDrives: true,
+        fields: 'permissions(id,type,role)',
+      });
+      const anyonePerms = (perms.data.permissions ?? []).filter(
+        (p) => p.type === 'anyone',
+      );
+      if (anyonePerms.length === 0) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ id, removed: [] }) }],
+        };
+      }
+      const removed: string[] = [];
+      for (const p of anyonePerms) {
+        if (!p.id) continue;
+        await drive.permissions.delete({
+          fileId: id,
+          permissionId: p.id,
+          supportsAllDrives: true,
+        });
+        removed.push(p.id);
+      }
+      logToFile(`Revoked ${removed.length} anyone:* permission(s) on ${id}`);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ id, removed }) }],
+      };
+    } catch (error) {
+      return this.handleError('drive.removePublicAccess', error);
     }
   };
 }
