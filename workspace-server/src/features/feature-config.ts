@@ -100,6 +100,8 @@ export const FEATURE_GROUPS: readonly FeatureGroup[] = [
       'drive.trashFile',
       'drive.renameFile',
       'drive.uploadFile',
+      'drive.addPublicAccess',
+      'drive.removePublicAccess',
     ],
     defaultEnabled: true,
   },
