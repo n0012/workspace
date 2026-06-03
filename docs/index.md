@@ -3,6 +3,10 @@
 This document provides an overview of the Google Workspace extension for Gemini
 CLI.
 
+> Running this as an MCP server for **Claude Code**? See
+> [claude-code-mcp-setup.md](claude-code-mcp-setup.md) for build, registration, and
+> re-auth steps.
+
 ## Available Tools
 
 The extension provides the following tools:
