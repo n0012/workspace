@@ -7,8 +7,16 @@ logs
 # Dependencies
 node_modules/
 
-# Build outputs
+# Build outputs — ignore dist/ everywhere…
 dist/
+# …except the two pre-built bundles the extension ships, so Corp Airlock
+# machines can skip `npm run build` (see commit 72b68ca). Re-including files
+# from an excluded dir requires un-excluding the dir, then ignoring its
+# contents, then negating the specific files to keep.
+!workspace-server/dist/
+workspace-server/dist/*
+!workspace-server/dist/index.js
+!workspace-server/dist/headless-login.js
 
 # Environment files
 .env
@@ -39,5 +47,4 @@ release/
 
 # VitePress
 docs/.vitepress/dist
-docs/.vitepress/cache!workspace-server/dist/index.js
-!workspace-server/dist/headless-login.js
+docs/.vitepress/cache
