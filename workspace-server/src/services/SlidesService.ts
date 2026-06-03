@@ -1049,6 +1049,244 @@ export class SlidesService {
     }
   };
 
+  /** Recursively locate a page element by objectId (descends into groups). */
+  private _findPageElement(
+    pages: slides_v1.Schema$Page[],
+    objectId: string,
+  ): slides_v1.Schema$PageElement | undefined {
+    const search = (
+      elements: slides_v1.Schema$PageElement[] | undefined,
+    ): slides_v1.Schema$PageElement | undefined => {
+      for (const el of elements ?? []) {
+        if (el.objectId === objectId) return el;
+        const found = search(el.elementGroup?.children);
+        if (found) return found;
+      }
+      return undefined;
+    };
+    for (const page of pages) {
+      const found = search(page.pageElements);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  /**
+   * Replace the text of an existing shape in place and apply explicit styling.
+   *
+   * Unlike a raw insertText via batchUpdate, this clears the shape, inserts the
+   * new text, then sets each requested style attribute with an explicit fields
+   * mask — so the text never silently inherits leftover styling from whatever
+   * was in the shape before. Only the style fields you pass are changed; omit
+   * `style` to keep the shape's existing look and just swap the words.
+   */
+  public setText = async ({
+    presentationId,
+    objectId,
+    text,
+    style,
+  }: {
+    presentationId: string;
+    objectId: string;
+    text: string;
+    style?: {
+      size?: number;
+      bold?: boolean;
+      italic?: boolean;
+      underline?: boolean;
+      strikethrough?: boolean;
+      align?: string;
+      indent?: number;
+      color?: ColorValue;
+      font_family?: string;
+      bold_phrases?: string[];
+      bold_until?: number;
+      links?: Array<{ text: string; url: string }>;
+    };
+  }) => {
+    logToFile(
+      `[SlidesService] setText for presentation ${presentationId}, shape ${objectId}`,
+    );
+    try {
+      const id = extractDocId(presentationId) || presentationId;
+      const slides = await this.getSlidesClient();
+
+      // Locate the shape so we know whether it already has text to clear, and
+      // to give a clear error if the objectId is wrong.
+      const pres = await slides.presentations.get({
+        presentationId: id,
+        fields: 'slides(objectId,pageElements)',
+      });
+      const target = this._findPageElement(pres.data.slides ?? [], objectId);
+      if (!target) {
+        throw new Error(
+          `Shape not found: ${objectId}. Use slides.getMetadata to list element IDs.`,
+        );
+      }
+      if (!target.shape) {
+        throw new Error(
+          `Object ${objectId} is not a text-capable shape (it has no shape/text).`,
+        );
+      }
+      const hasText = !!target.shape.text?.textElements?.length;
+
+      const theme: Theme = THEMES['google'];
+      const requests: slides_v1.Schema$Request[] = [];
+
+      // Clear existing text first (deleteText errors on an empty shape).
+      if (hasText) {
+        requests.push({
+          deleteText: { objectId, textRange: { type: 'ALL' } },
+        });
+      }
+
+      requests.push({ insertText: { objectId, insertionIndex: 0, text } });
+
+      if (style) {
+        // Base character style — only the fields the caller set, each with an
+        // explicit fields mask so nothing is left to inheritance.
+        const textStyle: slides_v1.Schema$TextStyle = {};
+        const fields: string[] = [];
+        if (style.size !== undefined) {
+          textStyle.fontSize = { magnitude: style.size, unit: 'PT' };
+          fields.push('fontSize');
+        }
+        if (style.bold !== undefined) {
+          textStyle.bold = style.bold;
+          fields.push('bold');
+        }
+        if (style.italic !== undefined) {
+          textStyle.italic = style.italic;
+          fields.push('italic');
+        }
+        if (style.underline !== undefined) {
+          textStyle.underline = style.underline;
+          fields.push('underline');
+        }
+        if (style.strikethrough !== undefined) {
+          textStyle.strikethrough = style.strikethrough;
+          fields.push('strikethrough');
+        }
+        if (style.color !== undefined) {
+          const rgb = resolveColor(style.color, theme);
+          if (rgb) {
+            textStyle.foregroundColor = { opaqueColor: { rgbColor: rgb } };
+            fields.push('foregroundColor');
+          }
+        }
+        if (style.font_family !== undefined) {
+          textStyle.fontFamily =
+            style.font_family === 'theme' ? theme.fontFamily : style.font_family;
+          fields.push('fontFamily');
+        }
+        if (fields.length) {
+          requests.push({
+            updateTextStyle: {
+              objectId,
+              style: textStyle,
+              textRange: { type: 'ALL' },
+              fields: fields.join(','),
+            },
+          });
+        }
+
+        // Paragraph style
+        const paraStyle: slides_v1.Schema$ParagraphStyle = {};
+        const paraFields: string[] = [];
+        if (style.align !== undefined) {
+          paraStyle.alignment =
+            style.align as slides_v1.Schema$ParagraphStyle['alignment'];
+          paraFields.push('alignment');
+        }
+        if (style.indent !== undefined) {
+          paraStyle.indentStart = { magnitude: style.indent, unit: 'PT' };
+          paraFields.push('indentStart');
+        }
+        if (paraFields.length) {
+          requests.push({
+            updateParagraphStyle: {
+              objectId,
+              style: paraStyle,
+              textRange: { type: 'ALL' },
+              fields: paraFields.join(','),
+            },
+          });
+        }
+
+        // Ranged emphasis within the new text.
+        for (const phrase of style.bold_phrases ?? []) {
+          let from = 0;
+          let idx: number;
+          while ((idx = text.indexOf(phrase, from)) !== -1) {
+            requests.push({
+              updateTextStyle: {
+                objectId,
+                style: { bold: true },
+                textRange: {
+                  type: 'FIXED_RANGE',
+                  startIndex: idx,
+                  endIndex: idx + phrase.length,
+                },
+                fields: 'bold',
+              },
+            });
+            from = idx + 1;
+          }
+        }
+        if (style.bold_until) {
+          requests.push({
+            updateTextStyle: {
+              objectId,
+              style: { bold: true },
+              textRange: {
+                type: 'FIXED_RANGE',
+                startIndex: 0,
+                endIndex: style.bold_until,
+              },
+              fields: 'bold',
+            },
+          });
+        }
+        for (const linkDef of style.links ?? []) {
+          let from = 0;
+          let idx: number;
+          while ((idx = text.indexOf(linkDef.text, from)) !== -1) {
+            requests.push({
+              updateTextStyle: {
+                objectId,
+                style: { link: { url: linkDef.url } },
+                textRange: {
+                  type: 'FIXED_RANGE',
+                  startIndex: idx,
+                  endIndex: idx + linkDef.text.length,
+                },
+                fields: 'link',
+              },
+            });
+            from = idx + 1;
+          }
+        }
+      }
+
+      await slides.presentations.batchUpdate({
+        presentationId: id,
+        requestBody: { requests },
+      });
+
+      logToFile(
+        `[SlidesService] setText applied ${requests.length} request(s) to ${objectId}`,
+      );
+      return this.formatResult({
+        presentationId: id,
+        objectId,
+        text,
+        applied: requests.length,
+      });
+    } catch (error) {
+      return this.formatError('slides.setText', error);
+    }
+  };
+
   public getSlideThumbnail = async ({
     presentationId,
     slideObjectId,

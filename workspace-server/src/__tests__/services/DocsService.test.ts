@@ -149,6 +149,15 @@ describe('DocsService', () => {
                 text: 'Hello',
               },
             },
+            // Inserted text is normalized to NORMAL_TEXT so it does not inherit
+            // a heading style from the insertion point.
+            {
+              updateParagraphStyle: {
+                range: { startIndex: 1, endIndex: 6, tabId: undefined },
+                paragraphStyle: { namedStyleType: 'NORMAL_TEXT' },
+                fields: 'namedStyleType',
+              },
+            },
           ],
         },
       });
@@ -158,6 +167,13 @@ describe('DocsService', () => {
     });
 
     it('should write text to end of document (default)', async () => {
+      // 'end' reads the document to discover the insertion index (so it can
+      // also normalize the inserted range's style).
+      mockDocsAPI.documents.get.mockResolvedValue({
+        data: {
+          tabs: [{ documentTab: { body: { content: [{ endIndex: 42 }] } } }],
+        },
+      });
       mockDocsAPI.documents.batchUpdate.mockResolvedValue({ data: {} });
 
       const result = await docsService.writeText({
@@ -165,12 +181,25 @@ describe('DocsService', () => {
         text: ' Appended',
       });
 
-      // Optimized path: no documents.get call needed
-      expect(mockDocsAPI.documents.get).not.toHaveBeenCalled();
+      expect(mockDocsAPI.documents.get).toHaveBeenCalled();
       expect(mockDocsAPI.documents.batchUpdate).toHaveBeenCalledWith({
         documentId: 'test-doc-id',
         requestBody: {
-          requests: [{ insertText: { text: ' Appended' } }],
+          requests: [
+            {
+              insertText: {
+                location: { index: 41, tabId: undefined },
+                text: ' Appended',
+              },
+            },
+            {
+              updateParagraphStyle: {
+                range: { startIndex: 41, endIndex: 50, tabId: undefined },
+                paragraphStyle: { namedStyleType: 'NORMAL_TEXT' },
+                fields: 'namedStyleType',
+              },
+            },
+          ],
         },
       });
       expect(result.content[0].text).toContain(
@@ -195,6 +224,13 @@ describe('DocsService', () => {
               insertText: {
                 location: { index: 5, tabId: undefined },
                 text: 'Inserted',
+              },
+            },
+            {
+              updateParagraphStyle: {
+                range: { startIndex: 5, endIndex: 13, tabId: undefined },
+                paragraphStyle: { namedStyleType: 'NORMAL_TEXT' },
+                fields: 'namedStyleType',
               },
             },
           ],
@@ -236,6 +272,13 @@ describe('DocsService', () => {
                   tabId: 'tab-1',
                 },
                 text: 'Hello',
+              },
+            },
+            {
+              updateParagraphStyle: {
+                range: { startIndex: 1, endIndex: 6, tabId: 'tab-1' },
+                paragraphStyle: { namedStyleType: 'NORMAL_TEXT' },
+                fields: 'namedStyleType',
               },
             },
           ],

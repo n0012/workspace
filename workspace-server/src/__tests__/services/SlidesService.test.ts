@@ -401,4 +401,122 @@ describe('SlidesService', () => {
       expect(response.error).toBe('API Error');
     });
   });
+
+  describe('setText', () => {
+    beforeEach(() => {
+      mockSlidesAPI.presentations.batchUpdate = jest.fn();
+      mockSlidesAPI.presentations.batchUpdate.mockResolvedValue({ data: {} });
+    });
+
+    it('clears existing text, inserts new text, and applies explicit style', async () => {
+      mockSlidesAPI.presentations.get.mockResolvedValue({
+        data: {
+          slides: [
+            {
+              objectId: 'slide1',
+              pageElements: [
+                {
+                  objectId: 'tx_3',
+                  shape: { text: { textElements: [{ textRun: { content: 'old' } }] } },
+                },
+              ],
+            },
+          ],
+        },
+      });
+
+      await slidesService.setText({
+        presentationId: 'pres-1',
+        objectId: 'tx_3',
+        text: 'Q3 Revenue',
+        style: { size: 24, bold: true, color: 'primary', align: 'CENTER' },
+      });
+
+      const call = mockSlidesAPI.presentations.batchUpdate.mock.calls[0][0];
+      const reqs = call.requestBody.requests;
+      // delete existing text -> insert -> text style -> paragraph style
+      expect(reqs[0]).toEqual({
+        deleteText: { objectId: 'tx_3', textRange: { type: 'ALL' } },
+      });
+      expect(reqs[1]).toEqual({
+        insertText: { objectId: 'tx_3', insertionIndex: 0, text: 'Q3 Revenue' },
+      });
+      const textStyleReq = reqs.find((r: any) => r.updateTextStyle);
+      expect(textStyleReq.updateTextStyle.fields).toBe('fontSize,bold,foregroundColor');
+      expect(textStyleReq.updateTextStyle.textRange).toEqual({ type: 'ALL' });
+      expect(textStyleReq.updateTextStyle.style.foregroundColor).toBeDefined();
+      const paraReq = reqs.find((r: any) => r.updateParagraphStyle);
+      expect(paraReq.updateParagraphStyle.fields).toBe('alignment');
+      expect(paraReq.updateParagraphStyle.style.alignment).toBe('CENTER');
+    });
+
+    it('skips deleteText when the shape is empty', async () => {
+      mockSlidesAPI.presentations.get.mockResolvedValue({
+        data: {
+          slides: [
+            { objectId: 'slide1', pageElements: [{ objectId: 'tx_3', shape: {} }] },
+          ],
+        },
+      });
+
+      await slidesService.setText({
+        presentationId: 'pres-1',
+        objectId: 'tx_3',
+        text: 'Hello',
+      });
+
+      const reqs =
+        mockSlidesAPI.presentations.batchUpdate.mock.calls[0][0].requestBody.requests;
+      expect(reqs.some((r: any) => r.deleteText)).toBe(false);
+      expect(reqs[0]).toEqual({
+        insertText: { objectId: 'tx_3', insertionIndex: 0, text: 'Hello' },
+      });
+    });
+
+    it('finds shapes nested inside groups', async () => {
+      mockSlidesAPI.presentations.get.mockResolvedValue({
+        data: {
+          slides: [
+            {
+              objectId: 'slide1',
+              pageElements: [
+                {
+                  objectId: 'group1',
+                  elementGroup: {
+                    children: [
+                      { objectId: 'tx_nested', shape: { text: { textElements: [] } } },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      });
+
+      const result = await slidesService.setText({
+        presentationId: 'pres-1',
+        objectId: 'tx_nested',
+        text: 'Nested',
+      });
+
+      expect(JSON.parse(result.content[0].text).objectId).toBe('tx_nested');
+      expect(mockSlidesAPI.presentations.batchUpdate).toHaveBeenCalled();
+    });
+
+    it('errors clearly when the shape is not found', async () => {
+      mockSlidesAPI.presentations.get.mockResolvedValue({
+        data: { slides: [{ objectId: 'slide1', pageElements: [] }] },
+      });
+
+      const result = await slidesService.setText({
+        presentationId: 'pres-1',
+        objectId: 'missing',
+        text: 'x',
+      });
+
+      expect(JSON.parse(result.content[0].text).error).toContain('Shape not found: missing');
+      expect(mockSlidesAPI.presentations.batchUpdate).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -295,71 +295,74 @@ export class DocsService {
       const id = extractDocId(documentId) || documentId;
       const docs = await this.getDocsClient();
 
-      // Optimize: when appending to the main body, omit location to skip
-      // an extra documents.get API call — the Docs API auto-appends.
-      if (position === 'end' && !tabId) {
-        await docs.documents.batchUpdate({
+      let index: number;
+
+      if (position === 'beginning') {
+        index = 1;
+      } else if (position === 'end') {
+        // Discover the end index by reading the document (required for tabs,
+        // and so we know the inserted range to normalize its style below).
+        const res = await docs.documents.get({
           documentId: id,
-          requestBody: {
-            requests: [{ insertText: { text } }],
-          },
+          fields: TABS_FIELD_MASK,
+          includeTabsContent: true,
         });
-      } else {
-        let index: number;
 
-        if (position === 'beginning') {
-          index = 1;
-        } else if (position === 'end') {
-          // Discover the end index by reading the document (required for tabs)
-          const res = await docs.documents.get({
-            documentId: id,
-            fields: TABS_FIELD_MASK,
-            includeTabsContent: true,
-          });
+        const tabs = this._flattenTabs(res.data.tabs || []);
+        let content: docs_v1.Schema$StructuralElement[] | undefined;
 
-          const tabs = this._flattenTabs(res.data.tabs || []);
-          let content: docs_v1.Schema$StructuralElement[] | undefined;
-
-          if (tabId) {
-            const tab = tabs.find((t) => t.tabProperties?.tabId === tabId);
-            if (!tab) {
-              throw new Error(`Tab with ID ${tabId} not found.`);
-            }
-            content = tab.documentTab?.body?.content;
-          } else if (tabs.length > 0) {
-            content = tabs[0].documentTab?.body?.content;
+        if (tabId) {
+          const tab = tabs.find((t) => t.tabProperties?.tabId === tabId);
+          if (!tab) {
+            throw new Error(`Tab with ID ${tabId} not found.`);
           }
-
-          const lastElement = content?.[content.length - 1];
-          const endIndex = lastElement?.endIndex || 1;
-          index = Math.max(1, endIndex - 1);
-        } else {
-          // Treat as a numeric index
-          index = parseInt(position, 10);
-          if (isNaN(index) || index < 1) {
-            throw new Error(
-              `Invalid position: "${position}". Use "beginning", "end", or a positive integer index.`,
-            );
-          }
+          content = tab.documentTab?.body?.content;
+        } else if (tabs.length > 0) {
+          content = tabs[0].documentTab?.body?.content;
         }
 
-        await docs.documents.batchUpdate({
-          documentId: id,
-          requestBody: {
-            requests: [
-              {
-                insertText: {
-                  location: {
-                    index,
-                    tabId: tabId,
-                  },
-                  text,
-                },
-              },
-            ],
-          },
-        });
+        const lastElement = content?.[content.length - 1];
+        const endIndex = lastElement?.endIndex || 1;
+        index = Math.max(1, endIndex - 1);
+      } else {
+        // Treat as a numeric index
+        index = parseInt(position, 10);
+        if (isNaN(index) || index < 1) {
+          throw new Error(
+            `Invalid position: "${position}". Use "beginning", "end", or a positive integer index.`,
+          );
+        }
       }
+
+      await docs.documents.batchUpdate({
+        documentId: id,
+        requestBody: {
+          requests: [
+            {
+              insertText: {
+                location: { index, tabId },
+                text,
+              },
+            },
+            // Inserted text inherits the paragraph style of the insertion
+            // point. Inserting at the top of a doc whose first line is a
+            // heading (or into a heading paragraph) would otherwise turn every
+            // inserted paragraph into that heading. Reset the inserted range to
+            // NORMAL_TEXT — callers apply headings explicitly via formatText.
+            {
+              updateParagraphStyle: {
+                range: {
+                  startIndex: index,
+                  endIndex: index + text.length,
+                  tabId,
+                },
+                paragraphStyle: { namedStyleType: 'NORMAL_TEXT' },
+                fields: 'namedStyleType',
+              },
+            },
+          ],
+        },
+      });
 
       logToFile(`[DocsService] Finished writeText for document: ${id}`);
       return {
