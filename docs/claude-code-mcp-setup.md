@@ -1,103 +1,93 @@
-# Using this Workspace server as an MCP for Claude Code
+# Using this Workspace server as an MCP (Claude Code + jetski/gemini)
 
-> Moved here from `n0012/losiern-monorepo/ai-skills/gemini-workspace-mcp/` when that
-> folder was retired. This repo (`n0012/workspace`) is the canonical source; the MCP
-> server Claude Code runs is built from `workspace-server/` here.
+This repo (`n0012/workspace`) is the canonical source for the Google Workspace MCP
+server — Gmail, Calendar, Drive, Docs, Slides (incl. the `slides.createFromJson` /
+write tools this fork adds), Sheets, Chat. It's run as an **MCP server**, not a skill.
 
-This server gives Claude Code (and Gemini CLI) tools for Gmail, Calendar, Drive, Docs,
-Slides, Sheets, and Chat. It is registered as an **MCP server**, not a skill.
+The same built server (`workspace-server/dist/index.js`) is shared by both clients:
+- **Claude Code** — registered as the `gemini-workspace` MCP.
+- **jetski / Gemini CLI** — loaded as a thin extension at `~/.gemini/extensions/google-workspace`.
 
-## How it works
-
-`workspace-server/` is a Node.js process. Claude Code spawns it as a subprocess and talks
-to it over stdio. It must be **built** before Claude can start it — if `dist/index.js` is
-missing or stale, the MCP silently fails to load.
+## Quick start (new machine)
 
 ```bash
-cd ~/dev/github/n0012/workspace/workspace-server
-npm install     # once, or after dependency changes
-npm run build   # compiles src/ → dist/index.js via esbuild
+git clone git@github.com:n0012/workspace.git ~/dev/github/n0012/workspace
+cd ~/dev/github/n0012/workspace
+./scripts/setup-mcp.sh          # builds dist, wires both clients to THIS checkout
+npm run auth-utils -- login     # one-time browser auth (headless variant below)
+# restart Claude Code / jetski
 ```
 
-## Registration (the gotcha)
+That's it. `scripts/setup-mcp.sh` is idempotent and self-locating — re-run it any time
+(after a fresh clone, or to repoint a client). It is also invoked automatically by the
+`git-bootstrap` skill's workspace step, so a full `git-bootstrap` run sets this up too.
 
-Claude Code has two config files:
-- `settings.json` — user preferences (model, permissions, MCP servers you add via `/mcp`)
-- `.claude.json` — internal state **and** global MCP servers
+## What `setup-mcp.sh` does
 
-This MCP is typically registered via `claude mcp add` (which writes user scope), pointing at
-the built entrypoint:
+All paths are derived from where you cloned the repo, so it works anywhere:
+
+1. **Builds** `workspace-server/dist/index.js` if missing (`npm install && npm run build`).
+2. **Writes the thin jetski/gemini extension** at `~/.gemini/extensions/google-workspace/`:
+   a generated `gemini-extension.json` whose mcpServer runs
+   `node <repo>/workspace-server/dist/index.js --use-dot-names` (cwd = repo root), plus
+   symlinks `WORKSPACE-Context.md` and `commands/` back to the repo.
+   > This deliberately **bypasses `scripts/start.js`**, which runs `npm install` on every
+   > launch. The thin extension launches the prebuilt server directly — fast, and it tracks
+   > the repo (a `git pull` + rebuild updates both clients).
+3. **Registers the Claude Code MCP** (`gemini-workspace` → the same `dist/index.js`) — but
+   only if `claude` is on `PATH`. On a no-Claude box (e.g. a Cloudtop) it skips this and just
+   configures the jetski/gemini extension. Same script, both environments.
+
+## Credentials
+
+Auth uses OAuth; tokens are stored in the **OS keychain** (user-level, not tied to a working
+directory), so the server authenticates from any cwd and both clients share one login.
+
+- **Standard (has a browser):** `cd ~/dev/github/n0012/workspace && npm run auth-utils -- login`
+- **Headless / SSH / Docker (no TTY):** `headless-login.js` reads `/dev/tty`, which doesn't
+  exist over SSH. Route it through stdin with `patch-tty.js`:
+  ```bash
+  cd ~/dev/github/n0012/workspace/workspace-server
+  # 1. print the auth URL
+  GEMINI_CLI_WORKSPACE_FORCE_FILE_STORAGE=true node --require ./patch-tty.js dist/headless-login.js --force
+  # 2. open the URL on a machine with a browser, sign in, copy the credentials JSON it shows
+  # 3. pipe it back:
+  echo '{"access_token":"...","refresh_token":"...","expiry_date":...}' | \
+    GEMINI_CLI_WORKSPACE_FORCE_FILE_STORAGE=true \
+    node --require ./patch-tty.js dist/headless-login.js --force
+  ```
+  Then restart the client so the MCP process picks up the new credentials.
+
+> **Never commit the credential files** (`gemini-cli-workspace-token.json`,
+> `.gemini-cli-workspace-master-key`). They were once checked into a different repo by
+> accident — keep them out of git.
+
+## Updating after a pull
+
+The clients reference the **built** file by absolute path, so rebuild after pulling source:
 
 ```bash
-claude mcp add gemini-workspace -- node \
-  ~/dev/github/n0012/workspace/workspace-server/dist/index.js --use-dot-names
+cd ~/dev/github/n0012/workspace && git pull && (cd workspace-server && npm run build)
+# restart Claude Code / jetski
 ```
 
-Verify with `claude mcp list` — `gemini-workspace` should show **✓ Connected**. If you
-registered it manually and can't find it in `settings.json`, check `.claude.json` under the
-top-level `mcpServers` key (or per-project `mcpServers`).
+(`git-bootstrap` runs the build for you; or just re-run `./scripts/setup-mcp.sh`, which builds
+only if `dist/` is missing — pass through `npm run build` yourself when source changed.)
 
 ## Source & fork
 
-Tracks the fork **[github.com/n0012/workspace](https://github.com/n0012/workspace)**, which
-extends upstream `gemini-cli-extensions/workspace` with Slides write tools (`slides.create`,
-`slides.batchUpdate`, `slides.createFromJson`). Upstream PRs:
+Tracks **[github.com/n0012/workspace](https://github.com/n0012/workspace)**, which extends
+upstream `gemini-cli-extensions/workspace` with Slides write tools. Upstream PRs:
 [#348](https://github.com/gemini-cli-extensions/workspace/pull/348) (createFromJson),
 [#237](https://github.com/gemini-cli-extensions/workspace/pull/237) (write tools).
 
-## Installing on a new machine
-
-**Claude Code**
-```bash
-git clone git@github.com:n0012/workspace.git ~/dev/github/n0012/workspace
-cd ~/dev/github/n0012/workspace/workspace-server && npm install && npm run build
-npm run auth-utils -- login            # standard machine (has browser)
-node dist/headless-login.js            # headless / SSH alternative
-claude mcp add gemini-workspace -- node \
-  ~/dev/github/n0012/workspace/workspace-server/dist/index.js --use-dot-names
-```
-
-**Gemini CLI**
-```bash
-gemini extensions install https://github.com/n0012/workspace
-node ~/.gemini/extensions/google-workspace/workspace-server/dist/headless-login.js
-gemini extensions list      # should show: google-workspace
-gemini extensions update google-workspace
-```
-
-## Re-authenticating
-
-Standard:
-```bash
-cd ~/dev/github/n0012/workspace && npm run auth-utils -- login
-```
-
-**Docker / no TTY** — `headless-login.js` reads `/dev/tty`, which doesn't exist in a
-container. Route it through stdin with `patch-tty.js`:
-
-1. Get the auth URL:
-   ```bash
-   cd ~/dev/github/n0012/workspace/workspace-server
-   GEMINI_CLI_WORKSPACE_FORCE_FILE_STORAGE=true node --require ./patch-tty.js dist/headless-login.js --force
-   ```
-2. Open the URL, sign in — the browser shows a credentials JSON blob.
-3. Pipe it back:
-   ```bash
-   echo '{"access_token":"...","refresh_token":"...","expiry_date":...}' | \
-     GEMINI_CLI_WORKSPACE_FORCE_FILE_STORAGE=true \
-     node --require ./patch-tty.js dist/headless-login.js --force
-   ```
-4. Restart the Claude Code session so the MCP process picks up the new credentials.
-
-> **Never commit the credential files** (`gemini-cli-workspace-token.json`,
-> `.gemini-cli-workspace-master-key`). They were accidentally checked into the old monorepo
-> folder; that's why this server moved homes and the creds were rotated.
-
 ## Troubleshooting
 
-| Symptom | Likely cause |
+| Symptom | Likely cause / fix |
 |---|---|
-| Workspace tools not available in Claude | `dist/index.js` missing — run `npm run build` |
-| MCP loads but API calls fail with "No browser available" | OAuth token expired — re-auth (above) |
-| Don't see it in `settings.json` | It's in `.claude.json`, not `settings.json` |
-| Want to verify it's loaded | `claude mcp list` — `gemini-workspace` should be Connected |
+| Tools missing in Claude | `dist/index.js` not built — `cd workspace-server && npm run build`, restart |
+| Tools missing in jetski | extension not written or jetski not restarted — re-run `./scripts/setup-mcp.sh`, restart jetski |
+| API calls fail "No browser available" | token expired — re-auth (above) |
+| Claude registration not in `settings.json` | it's stored under user scope / `.claude.json`, not `settings.json` |
+| Verify Claude side | `claude mcp list` → `gemini-workspace` should be **✓ Connected** |
+| Verify jetski side | `cat ~/.gemini/extensions/google-workspace/gemini-extension.json` points at your checkout's `dist/index.js` |
