@@ -20,6 +20,7 @@ import { PeopleService } from './services/PeopleService';
 import { SlidesService, PREDEFINED_LAYOUTS } from './services/SlidesService';
 import { SheetsService } from './services/SheetsService';
 import { GMAIL_SEARCH_MAX_RESULTS } from './utils/constants';
+import { gmailAttachmentSchema } from './utils/validation';
 
 import { setLoggingEnabled, logToFile } from './utils/logger';
 import { applyToolNameNormalization } from './utils/tool-normalization';
@@ -128,6 +129,10 @@ const emailComposeSchema = {
     .union([z.string(), z.array(z.string())])
     .optional()
     .describe('BCC recipient email address(es).'),
+  replyTo: z
+    .string()
+    .optional()
+    .describe('The email address to which replies should be sent.'),
   isHtml: z
     .boolean()
     .optional()
@@ -1708,6 +1713,12 @@ System labels that can be modified:
           .optional()
           .describe(
             'The thread ID to create the draft as a reply to. When provided, the draft will be linked to the existing thread with appropriate reply headers.',
+          ),
+        attachments: z
+          .array(gmailAttachmentSchema)
+          .optional()
+          .describe(
+            'Files to attach to the draft. Each entry must reference an absolute local path. Download attachments first with gmail.downloadAttachment if needed.',
           ),
       },
     },
