@@ -1027,6 +1027,80 @@ async function main() {
     slidesService.createFromJson,
   );
 
+  registerTool(
+    'slides.setText',
+    {
+      description:
+        'Replaces the text of an existing shape/text box in place and applies explicit styling. Use this instead of a raw slides.batchUpdate insertText: it clears the shape, inserts the new text, and sets each style attribute you pass with an explicit fields mask, so the text never inherits stray leftover styling. Only the style fields you provide are changed — omit `style` to keep the shape\'s current look and just swap the words. Get objectId from slides.getMetadata or slides.getText. Color accepts the same aliases as createFromJson ("primary", "text", "blue", ...) or an RGB 0-1 object; font_family:"theme" uses the active theme font.',
+      inputSchema: {
+        presentationId: z
+          .string()
+          .describe('The ID or URL of the presentation.'),
+        objectId: z
+          .string()
+          .describe(
+            'The object ID of the shape/text box to update (from slides.getMetadata or slides.getText). Its existing text is replaced.',
+          ),
+        text: z.string().describe('The new text content for the shape.'),
+        style: z
+          .object({
+            size: z.number().optional().describe('Font size in points.'),
+            bold: z.boolean().optional().describe('Bold text.'),
+            italic: z.boolean().optional().describe('Italic text.'),
+            underline: z.boolean().optional().describe('Underline text.'),
+            strikethrough: z
+              .boolean()
+              .optional()
+              .describe('Strikethrough text.'),
+            align: z
+              .enum(['START', 'CENTER', 'END'])
+              .optional()
+              .describe('Horizontal text alignment.'),
+            indent: z
+              .number()
+              .optional()
+              .describe('Left indent of paragraph text in points.'),
+            color: slidesColorSchema
+              .optional()
+              .describe(
+                'Text color: an alias ("primary", "text", "blue", ...) or an RGB 0-1 object.',
+              ),
+            font_family: z
+              .string()
+              .optional()
+              .describe(
+                'Font family name, or "theme" for the active theme font.',
+              ),
+            bold_phrases: z
+              .array(z.string().min(1))
+              .optional()
+              .describe('Phrases within the text to bold.'),
+            bold_until: z
+              .number()
+              .optional()
+              .describe('Bold text from start to this character index.'),
+            links: z
+              .array(
+                z.object({
+                  text: z
+                    .string()
+                    .min(1)
+                    .describe('Link text to find in content.'),
+                  url: z.string().describe('URL to link to.'),
+                }),
+              )
+              .optional()
+              .describe('Hyperlinks to apply to matching text.'),
+          })
+          .optional()
+          .describe(
+            "Optional styling. Only the fields you set are changed, each applied explicitly so text never inherits stray styling. Omit to keep the shape's existing style.",
+          ),
+      },
+    },
+    slidesService.setText,
+  );
+
   // Sheets tools
   registerTool(
     'sheets.getText',

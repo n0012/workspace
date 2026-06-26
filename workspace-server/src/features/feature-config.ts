@@ -231,6 +231,7 @@ export const FEATURE_GROUPS: readonly FeatureGroup[] = [
       'slides.updateShapeProperties',
       'slides.batchUpdate',
       'slides.createFromJson',
+      'slides.setText',
     ],
     defaultEnabled: false,
   },
