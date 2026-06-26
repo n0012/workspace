@@ -2221,7 +2221,7 @@ describe('resolveColor + THEMES', () => {
     expect(resolveColor(undefined, THEMES.default)).toBeUndefined();
   });
 
-  it('ships exactly the default and dark themes', () => {
-    expect(Object.keys(THEMES).sort()).toEqual(['dark', 'default']);
+  it('ships only the neutral default theme (branding lives in the skill)', () => {
+    expect(Object.keys(THEMES)).toEqual(['default']);
   });
 });

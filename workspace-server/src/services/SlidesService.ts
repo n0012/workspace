@@ -37,9 +37,10 @@ interface Theme {
 }
 
 /**
- * Built-in themes for createFromJson. Two ship today: a neutral light theme
- * (`default`) and a dark theme (`dark`). Color aliases resolve against the
- * active theme so blueprints stay theme-portable.
+ * Built-in palette for createFromJson — a single neutral theme. Color aliases
+ * resolve against it. The server stays deliberately unbranded; callers that want
+ * a branded look (e.g. Google Sans + brand colors) apply it themselves via
+ * explicit font_family / colors, or pass RGB objects for one-off colors.
  */
 export const THEMES: Record<string, Theme> = {
   default: {
@@ -57,22 +58,6 @@ export const THEMES: Record<string, Theme> = {
     accent2: { red: 0.918, green: 0.263, blue: 0.208 }, // red
     accent3: { red: 0.984, green: 0.737, blue: 0.02 }, // yellow
     accent4: { red: 0.204, green: 0.659, blue: 0.325 }, // green
-  },
-  dark: {
-    primary: { red: 0.129, green: 0.588, blue: 0.953 }, // bright blue accent on dark
-    primaryText: { red: 1.0, green: 1.0, blue: 1.0 },
-    secondary: { red: 0.611, green: 0.353, blue: 0.949 }, // purple accent
-    secondaryText: { red: 1.0, green: 1.0, blue: 1.0 },
-    surface: { red: 0.157, green: 0.165, blue: 0.184 }, // #282A2F card
-    surfaceAlt: { red: 0.204, green: 0.212, blue: 0.235 }, // slightly lighter card
-    text: { red: 0.925, green: 0.933, blue: 0.945 }, // near-white body
-    textMuted: { red: 0.667, green: 0.678, blue: 0.698 }, // muted gray
-    background: { red: 0.075, green: 0.082, blue: 0.094 }, // #131517 slide bg
-    fontFamily: 'Arial',
-    accent1: { red: 0.4, green: 0.624, blue: 0.969 }, // blue
-    accent2: { red: 0.969, green: 0.451, blue: 0.408 }, // red
-    accent3: { red: 1.0, green: 0.831, blue: 0.31 }, // yellow
-    accent4: { red: 0.388, green: 0.776, blue: 0.494 }, // green
   },
 };
 
@@ -1768,12 +1753,10 @@ export class SlidesService {
   public createFromJson = async ({
     presentationId,
     slideJson: rawSlideJson,
-    theme: themeName,
     isNewPresentation = false,
   }: {
     presentationId: string;
     slideJson: string | Record<string, unknown>;
-    theme?: string;
     isNewPresentation?: boolean;
   }) => {
     try {
@@ -1783,9 +1766,7 @@ export class SlidesService {
           ? JSON.parse(rawSlideJson)
           : rawSlideJson;
 
-      const theme: Theme =
-        THEMES[(themeName ?? DEFAULT_THEME).toLowerCase()] ??
-        THEMES[DEFAULT_THEME];
+      const theme: Theme = THEMES[DEFAULT_THEME];
 
       // Accept either slides[] or a single top-level elements[]. Guard against
       // a slide object that omits `elements` so buildSlideRequests never spreads
