@@ -1473,6 +1473,23 @@ export class SlidesService {
 
     for (const { el, elementIndex } of sorted) {
       const pos = el.position;
+      // Guard malformed elements (common in raw LLM output): a missing or
+      // incomplete position would otherwise throw a cryptic "reading 'h'" mid-batch.
+      // Skip the element and record a warning instead of failing the whole deck.
+      if (
+        !pos ||
+        typeof pos.x !== 'number' ||
+        typeof pos.y !== 'number' ||
+        typeof pos.w !== 'number' ||
+        typeof pos.h !== 'number'
+      ) {
+        warnings.push({
+          slideIndex,
+          elementIndex,
+          issue: `element missing a valid position {x,y,w,h}, skipped (type: ${el.type})`,
+        });
+        continue;
+      }
       const style = el.style || {};
 
       if (el.type === 'shape') {

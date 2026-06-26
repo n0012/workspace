@@ -1938,6 +1938,43 @@ describe('SlidesService', () => {
       expect(image.createImage.url).not.toContain('{');
     });
 
+    it('should skip (not crash on) an element missing a valid position', async () => {
+      mockSlidesAPI.presentations.batchUpdate.mockResolvedValue({
+        data: { replies: [{}] },
+      });
+
+      const result = await slidesService.createFromJson({
+        presentationId: 'pres-1',
+        slideJson: {
+          slides: [
+            {
+              elements: [
+                {
+                  type: 'text',
+                  content: 'ok',
+                  position: { x: 0, y: 0, w: 100, h: 20 },
+                },
+                { type: 'text', content: 'bad — no position' } as any,
+                { type: 'shape', position: { x: 0, y: 0 } } as any,
+              ],
+            },
+          ],
+        },
+      });
+
+      const response = JSON.parse(result.content[0].text);
+      expect(result.isError).toBeUndefined();
+      expect(response.slidesCreated).toBe(1);
+      // the two malformed elements are reported, the good one still renders
+      expect(response.warnings).toHaveLength(2);
+      const kinds =
+        mockSlidesAPI.presentations.batchUpdate.mock.calls[0][0].requestBody.requests.map(
+          (r: any) => Object.keys(r)[0],
+        );
+      expect(kinds).toContain('createSlide');
+      expect(kinds.filter((k: string) => k === 'createShape').length).toBe(1);
+    });
+
     it('should delete the default slide only when isNewPresentation and "p" exists', async () => {
       mockSlidesAPI.presentations.batchUpdate.mockResolvedValue({
         data: { replies: [{}] },
