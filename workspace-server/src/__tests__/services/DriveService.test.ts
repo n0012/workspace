@@ -31,6 +31,7 @@ jest.mock('node:fs', () => {
     existsSync: jest.fn(),
     writeFileSync: jest.fn(),
     mkdirSync: jest.fn(),
+    createReadStream: jest.fn(),
   };
 });
 jest.mock('node:path', () => {
@@ -75,6 +76,11 @@ describe('DriveService', () => {
       },
       comments: {
         list: jest.fn(),
+      },
+      permissions: {
+        create: jest.fn(),
+        list: jest.fn(),
+        delete: jest.fn(),
       },
     };
 
@@ -1437,6 +1443,135 @@ describe('DriveService', () => {
           fields: expect.stringContaining('action'),
         }),
       );
+    });
+  });
+
+  describe('uploadFile', () => {
+    it('should error (isError) when the local file does not exist', async () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(false);
+
+      const result = await driveService.uploadFile({
+        localPath: '/does/not/exist.png',
+      });
+      const response = JSON.parse(result.content[0].text);
+
+      expect('isError' in result && result.isError).toBe(true);
+      expect(response.error).toContain('File not found');
+      expect(mockDriveAPI.files.create).not.toHaveBeenCalled();
+    });
+
+    it('should upload a private file and return its id', async () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      mockDriveAPI.files.create.mockResolvedValue({
+        data: { id: 'uploaded-id', name: 'pic.png', webViewLink: 'http://x' },
+      });
+
+      const result = await driveService.uploadFile({
+        localPath: '/tmp/pic.png',
+        mimeType: 'image/png',
+      });
+      const response = JSON.parse(result.content[0].text);
+
+      expect(response.id).toBe('uploaded-id');
+      // No sharing is granted on upload.
+      expect(mockDriveAPI.permissions.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('addPublicAccess', () => {
+    it('should grant anyone:reader and return an lh3 image URL', async () => {
+      mockDriveAPI.permissions.create.mockResolvedValue({
+        data: { id: 'perm-1' },
+      });
+
+      const result = await driveService.addPublicAccess({ fileId: 'file123' });
+      const response = JSON.parse(result.content[0].text);
+
+      expect(mockDriveAPI.permissions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestBody: { role: 'reader', type: 'anyone' },
+        }),
+      );
+      expect(response.imageUrl).toBe(
+        'https://lh3.googleusercontent.com/d/file123',
+      );
+    });
+
+    it('should surface a structured hint when org policy blocks sharing', async () => {
+      mockDriveAPI.permissions.create.mockRejectedValue({
+        message: 'Insufficient permissions',
+        errors: [{ reason: 'publishOutNotPermitted' }],
+      });
+
+      const result = await driveService.addPublicAccess({ fileId: 'file123' });
+      const response = JSON.parse(result.content[0].text);
+
+      expect('isError' in result && result.isError).toBe(true);
+      expect(response.reason).toBe('publishOutNotPermitted');
+      expect(response.hint).toContain('publicly reachable URL');
+    });
+  });
+
+  describe('removePublicAccess', () => {
+    it('should revoke only anyone-type permissions', async () => {
+      mockDriveAPI.permissions.list.mockResolvedValue({
+        data: {
+          permissions: [
+            { id: 'p-anyone', type: 'anyone', role: 'reader' },
+            { id: 'p-user', type: 'user', role: 'writer' },
+          ],
+        },
+      });
+      mockDriveAPI.permissions.delete.mockResolvedValue({});
+
+      const result = await driveService.removePublicAccess({
+        fileId: 'file123',
+      });
+      const response = JSON.parse(result.content[0].text);
+
+      expect(mockDriveAPI.permissions.delete).toHaveBeenCalledTimes(1);
+      expect(mockDriveAPI.permissions.delete).toHaveBeenCalledWith(
+        expect.objectContaining({ permissionId: 'p-anyone' }),
+      );
+      expect(response.removed).toEqual(['p-anyone']);
+      expect(response.failed).toEqual([]);
+    });
+
+    it('should report partial failures without throwing', async () => {
+      mockDriveAPI.permissions.list.mockResolvedValue({
+        data: {
+          permissions: [
+            { id: 'p-1', type: 'anyone' },
+            { id: 'p-2', type: 'anyone' },
+          ],
+        },
+      });
+      mockDriveAPI.permissions.delete
+        .mockResolvedValueOnce({})
+        .mockRejectedValueOnce(new Error('revoked auth'));
+
+      const result = await driveService.removePublicAccess({
+        fileId: 'file123',
+      });
+      const response = JSON.parse(result.content[0].text);
+
+      expect(response.removed).toEqual(['p-1']);
+      expect(response.failed).toHaveLength(1);
+      expect(response.failed[0].permissionId).toBe('p-2');
+    });
+
+    it('should be a no-op when there are no public permissions', async () => {
+      mockDriveAPI.permissions.list.mockResolvedValue({
+        data: { permissions: [{ id: 'p-user', type: 'user' }] },
+      });
+
+      const result = await driveService.removePublicAccess({
+        fileId: 'file123',
+      });
+      const response = JSON.parse(result.content[0].text);
+
+      expect(mockDriveAPI.permissions.delete).not.toHaveBeenCalled();
+      expect(response.removed).toEqual([]);
     });
   });
 });

@@ -893,6 +893,140 @@ async function main() {
     slidesService.updateShapeProperties,
   );
 
+  registerTool(
+    'slides.batchUpdate',
+    {
+      description:
+        'Raw passthrough to the Slides API presentations.batchUpdate. Escape hatch for arbitrary or complex edits to an existing deck that the granular slides.* tools do not cover (connectors, grouping, table cell merges, transforms, bulk restyle). For building decks, prefer slides.createFromJson.',
+      inputSchema: {
+        presentationId: z
+          .string()
+          .describe('The ID or URL of the presentation to modify.'),
+        requests: z
+          .union([z.string(), z.array(z.any())])
+          .describe(
+            'An array of Slides API request objects, or a JSON string of that array (e.g., [{"createSlide":{}}, {"createShape":{...}}]).',
+          ),
+      },
+    },
+    slidesService.batchUpdate,
+  );
+
+  // Color accepts a theme alias string ("primary", "text", "blue", ...) or an
+  // explicit RGB object (0-1 components). Aliases resolve against the active theme.
+  const slidesColorSchema = z.union([
+    z.string(),
+    z.object({
+      red: z.number().min(0).max(1),
+      green: z.number().min(0).max(1),
+      blue: z.number().min(0).max(1),
+    }),
+  ]);
+
+  const slideElementSchema = z.object({
+    type: z.enum(['text', 'shape', 'image']),
+    content: z.string().optional().describe('Text content (text elements).'),
+    shape_type: z
+      .string()
+      .optional()
+      .describe(
+        'Slides shape type (e.g. "RECTANGLE", "ELLIPSE"). Shapes only.',
+      ),
+    url: z.string().optional().describe('Image URL (image elements).'),
+    layer: z
+      .number()
+      .optional()
+      .describe('Render order; lower renders first (backgrounds=0, text=2+).'),
+    position: z
+      .object({
+        x: z.number(),
+        y: z.number(),
+        w: z.number(),
+        h: z.number(),
+      })
+      .describe('Position and size in points on the 720×405 canvas.'),
+    style: z
+      .object({
+        size: z.number().optional(),
+        bold: z.boolean().optional(),
+        italic: z.boolean().optional(),
+        underline: z.boolean().optional(),
+        strikethrough: z.boolean().optional(),
+        align: z.enum(['START', 'CENTER', 'END']).optional(),
+        vertical_align: z.enum(['TOP', 'MIDDLE', 'BOTTOM']).optional(),
+        indent: z.number().optional(),
+        color: slidesColorSchema
+          .optional()
+          .describe('Text color (alias or RGB).'),
+        bg_color: slidesColorSchema
+          .optional()
+          .describe('Shape background color (alias or RGB).'),
+        border_color: slidesColorSchema
+          .optional()
+          .describe('Shape border color (alias or RGB).'),
+        border_weight: z.number().optional(),
+        no_border: z.boolean().optional(),
+        font_family: z
+          .string()
+          .optional()
+          .describe('Font family, or "theme" to inherit the theme font.'),
+        bold_phrases: z
+          .array(z.string().min(1))
+          .optional()
+          .describe('Phrases within content to bold (every occurrence).'),
+        bold_until: z
+          .number()
+          .optional()
+          .describe('Bold the leading characters up to this index.'),
+        links: z
+          .array(z.object({ text: z.string().min(1), url: z.string() }))
+          .optional()
+          .describe('Hyperlinks applied to matching phrases.'),
+      })
+      .optional(),
+  });
+
+  const slideObjectSchema = z.object({
+    elements: z.array(slideElementSchema),
+    speaker_notes: z.string().optional(),
+  });
+
+  registerTool(
+    'slides.createFromJson',
+    {
+      description:
+        'Creates one or more slides from a JSON blueprint and appends them to a presentation. Speaker notes in the blueprint are written automatically.\n\nFORMATS: {"slides":[{"elements":[...],"speaker_notes":"..."},...]} for multiple slides, or {"elements":[...]} for a single slide.\n\nCANVAS: 720×405 pt (16:9), origin top-left.\n\nELEMENT TYPES: type ("text"|"shape"|"image"), position ({x,y,w,h} in points), optional content, shape_type, url (images), layer (z-index; lower renders first — backgrounds=0, boxes=1, text=2+).\n\nCOLORS: use a theme alias ("primary", "secondary", "surface", "surface_alt", "text", "text_muted", "background", or accent aliases "blue"/"red"/"yellow"/"green") OR an explicit RGB 0-1 object for one-off colors. Aliases resolve against the active theme.\n\nTHEMES: pass theme:"default" (light, the default) or theme:"dark". font_family:"theme" inherits the theme font.\n\nSPEAKER NOTES (strongly recommended): include "speaker_notes" on each slide and they are written automatically. If omitted, the response returns an action_required hint asking you to call slides.updateSpeakerNotes per slide.\n\nNEW DECKS: when you just created the presentation with slides.create, pass isNewPresentation:true to remove the default blank first slide. When appending to an existing deck, leave it false so nothing is deleted.\n\nSTYLE PROPERTIES: size, bold, italic, underline, strikethrough, align (START|CENTER|END), vertical_align (TOP|MIDDLE|BOTTOM), indent, color, bg_color, border_color, border_weight, no_border, font_family ("theme" to inherit), bold_phrases, bold_until, links ([{text,url}]). font_family defaults to the active theme font. Image URLs containing unresolved placeholders are replaced with a fallback icon and reported under "warnings".',
+      inputSchema: {
+        presentationId: z
+          .string()
+          .describe('The ID or URL of the presentation to add slides to.'),
+        slideJson: z
+          .union([
+            z.object({ slides: z.array(slideObjectSchema) }),
+            z.object({
+              elements: z.array(slideElementSchema),
+              speaker_notes: z.string().optional(),
+            }),
+            z.string(),
+          ])
+          .describe(
+            'The slide blueprint. Use {"slides":[{"elements":[...],"speaker_notes":"..."}]} for multiple slides or {"elements":[...]} for one. Accepts an object or a JSON string.',
+          ),
+        theme: z
+          .enum(['default', 'dark'])
+          .optional()
+          .describe('Theme to apply. Defaults to "default" (light).'),
+        isNewPresentation: z
+          .boolean()
+          .optional()
+          .describe(
+            'When true, removes the default blank slide that a brand-new presentation ships with. Leave false (default) when appending to an existing deck.',
+          ),
+      },
+    },
+    slidesService.createFromJson,
+  );
+
   // Sheets tools
   registerTool(
     'sheets.getText',
@@ -1045,6 +1179,60 @@ async function main() {
       },
     },
     driveService.renameFile,
+  );
+
+  registerTool(
+    'drive.uploadFile',
+    {
+      description:
+        'Uploads a local file to Google Drive. File is PRIVATE by default — only the authenticated user can read it. To make it fetchable by the Slides API (or any other public consumer), call drive.addPublicAccess separately. Returns id, name, and webViewLink.',
+      inputSchema: {
+        localPath: z
+          .string()
+          .describe('Absolute path to the local file to upload.'),
+        name: z
+          .string()
+          .optional()
+          .describe(
+            'Name for the file in Drive. Defaults to the local filename.',
+          ),
+        mimeType: z
+          .string()
+          .optional()
+          .describe(
+            'MIME type of the file (e.g. "image/png"). Defaults to application/octet-stream.',
+          ),
+        parentId: z
+          .string()
+          .optional()
+          .describe('Drive folder ID to upload into. Defaults to root.'),
+      },
+    },
+    driveService.uploadFile,
+  );
+
+  registerTool(
+    'drive.addPublicAccess',
+    {
+      description:
+        'Grants anyone:reader sharing on a Drive file, making it readable by anyone with the link (including unauthenticated services like the Slides API image fetcher). Returns a public imageUrl suitable for slides.createFromJson image elements. ALWAYS pair with drive.removePublicAccess when done to close the share. Subject to Workspace org policy — corporate domains often block this (publishOutNotPermitted error).',
+      inputSchema: {
+        fileId: z.string().describe('The ID or URL of the Drive file.'),
+      },
+    },
+    driveService.addPublicAccess,
+  );
+
+  registerTool(
+    'drive.removePublicAccess',
+    {
+      description:
+        'Revokes any anyone-type sharing permissions on a Drive file (e.g. anyone:reader granted by drive.addPublicAccess). File remains in Drive — only the public link is removed. Returns the lists of removed and failed permission IDs. Idempotent: returns empty lists if no public permissions exist.',
+      inputSchema: {
+        fileId: z.string().describe('The ID or URL of the Drive file.'),
+      },
+    },
+    driveService.removePublicAccess,
   );
 
   registerTool(

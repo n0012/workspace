@@ -12,7 +12,11 @@ import {
   beforeEach,
   afterEach,
 } from '@jest/globals';
-import { SlidesService } from '../../services/SlidesService';
+import {
+  SlidesService,
+  resolveColor,
+  THEMES,
+} from '../../services/SlidesService';
 import { AuthManager } from '../../auth/AuthManager';
 import { google } from 'googleapis';
 import { request } from 'gaxios';
@@ -1787,5 +1791,230 @@ describe('SlidesService', () => {
       const response = JSON.parse(result.content[0].text);
       expect(response.error).toBe('Shape Props Error');
     });
+  });
+
+  describe('batchUpdate', () => {
+    it('should parse a JSON string of requests and call the API', async () => {
+      mockSlidesAPI.presentations.batchUpdate.mockResolvedValue({
+        data: { replies: [{}] },
+      });
+
+      const result = await slidesService.batchUpdate({
+        presentationId: 'pres-1',
+        requests: JSON.stringify([{ createSlide: {} }]),
+      });
+      JSON.parse(result.content[0].text);
+
+      expect(mockSlidesAPI.presentations.batchUpdate).toHaveBeenCalledWith({
+        presentationId: 'pres-1',
+        requestBody: { requests: [{ createSlide: {} }] },
+      });
+      expect(result.isError).toBeUndefined();
+    });
+
+    it('should accept an already-parsed array of requests', async () => {
+      mockSlidesAPI.presentations.batchUpdate.mockResolvedValue({
+        data: { replies: [] },
+      });
+
+      await slidesService.batchUpdate({
+        presentationId: 'pres-1',
+        requests: [{ deleteObject: { objectId: 'x' } }],
+      });
+
+      expect(mockSlidesAPI.presentations.batchUpdate).toHaveBeenCalledWith({
+        presentationId: 'pres-1',
+        requestBody: { requests: [{ deleteObject: { objectId: 'x' } }] },
+      });
+    });
+
+    it('should flag errors with isError', async () => {
+      mockSlidesAPI.presentations.batchUpdate.mockRejectedValue(
+        new Error('Batch Error'),
+      );
+      const result = await slidesService.batchUpdate({
+        presentationId: 'pres-1',
+        requests: [],
+      });
+      const response = JSON.parse(result.content[0].text);
+      expect(result.isError).toBe(true);
+      expect(response.error).toBe('Batch Error');
+    });
+  });
+
+  describe('createFromJson', () => {
+    it('should translate a blueprint into createSlide + element requests', async () => {
+      mockSlidesAPI.presentations.batchUpdate.mockResolvedValue({
+        data: { replies: [{}, {}] },
+      });
+
+      const result = await slidesService.createFromJson({
+        presentationId: 'pres-1',
+        slideJson: {
+          slides: [
+            {
+              elements: [
+                {
+                  type: 'shape',
+                  shape_type: 'RECTANGLE',
+                  position: { x: 0, y: 0, w: 100, h: 50 },
+                  style: { bg_color: 'primary' },
+                },
+                {
+                  type: 'text',
+                  content: 'Hello',
+                  position: { x: 10, y: 10, w: 80, h: 30 },
+                  style: { color: 'blue', size: 18 },
+                },
+              ],
+            },
+          ],
+        },
+      });
+
+      const response = JSON.parse(result.content[0].text);
+      expect(result.isError).toBeUndefined();
+      expect(response.slidesCreated).toBe(1);
+      expect(response.presentationLink).toContain('pres-1');
+      // Default-slide deletion only runs for new presentations.
+      expect(mockSlidesAPI.presentations.get).not.toHaveBeenCalled();
+
+      const sentRequests =
+        mockSlidesAPI.presentations.batchUpdate.mock.calls[0][0].requestBody
+          .requests;
+      const kinds = sentRequests.map((r: any) => Object.keys(r)[0]);
+      expect(kinds).toContain('createSlide');
+      expect(kinds).toContain('createShape');
+      expect(kinds).toContain('insertText');
+    });
+
+    it('should not crash when a slide omits elements', async () => {
+      mockSlidesAPI.presentations.batchUpdate.mockResolvedValue({
+        data: { replies: [{}] },
+      });
+
+      const result = await slidesService.createFromJson({
+        presentationId: 'pres-1',
+        slideJson: { slides: [{}] } as any,
+      });
+      const response = JSON.parse(result.content[0].text);
+      expect(result.isError).toBeUndefined();
+      expect(response.slidesCreated).toBe(1);
+    });
+
+    it('should substitute a fallback icon and warn for placeholder image URLs', async () => {
+      mockSlidesAPI.presentations.batchUpdate.mockResolvedValue({
+        data: { replies: [{}] },
+      });
+
+      const result = await slidesService.createFromJson({
+        presentationId: 'pres-1',
+        slideJson: {
+          slides: [
+            {
+              elements: [
+                {
+                  type: 'image',
+                  url: 'https://example.com/{placeholder}.png',
+                  position: { x: 0, y: 0, w: 100, h: 100 },
+                },
+              ],
+            },
+          ],
+        },
+      });
+
+      const response = JSON.parse(result.content[0].text);
+      expect(response.warnings).toHaveLength(1);
+      expect(response.warnings[0]).toMatchObject({
+        slideIndex: 0,
+        elementIndex: 0,
+      });
+
+      const sentRequests =
+        mockSlidesAPI.presentations.batchUpdate.mock.calls[0][0].requestBody
+          .requests;
+      const image = sentRequests.find((r: any) => r.createImage);
+      expect(image.createImage.url).not.toContain('{');
+    });
+
+    it('should delete the default slide only when isNewPresentation and "p" exists', async () => {
+      mockSlidesAPI.presentations.batchUpdate.mockResolvedValue({
+        data: { replies: [{}] },
+      });
+      mockSlidesAPI.presentations.get.mockResolvedValue({
+        data: { slides: [{ objectId: 'p' }, { objectId: 'slide_x' }] },
+      });
+
+      await slidesService.createFromJson({
+        presentationId: 'pres-1',
+        slideJson: {
+          slides: [
+            {
+              elements: [
+                {
+                  type: 'text',
+                  content: 'x',
+                  position: { x: 0, y: 0, w: 1, h: 1 },
+                },
+              ],
+            },
+          ],
+        },
+        isNewPresentation: true,
+      });
+
+      const deleteCall =
+        mockSlidesAPI.presentations.batchUpdate.mock.calls.find((c: any) =>
+          c[0].requestBody.requests.some((r: any) => r.deleteObject),
+        );
+      expect(deleteCall).toBeDefined();
+      expect(deleteCall[0].requestBody.requests[0].deleteObject.objectId).toBe(
+        'p',
+      );
+    });
+
+    it('should flag errors with isError', async () => {
+      mockSlidesAPI.presentations.batchUpdate.mockRejectedValue(
+        new Error('Create From Json Error'),
+      );
+      const result = await slidesService.createFromJson({
+        presentationId: 'pres-1',
+        slideJson: { slides: [{ elements: [] }] },
+      });
+      const response = JSON.parse(result.content[0].text);
+      expect(result.isError).toBe(true);
+      expect(response.error).toBe('Create From Json Error');
+    });
+  });
+});
+
+describe('resolveColor + THEMES', () => {
+  it('resolves named aliases against the active theme', () => {
+    const theme = THEMES.default;
+    expect(resolveColor('primary', theme)).toEqual(theme.primary);
+    expect(resolveColor('text_muted', theme)).toEqual(theme.textMuted);
+  });
+
+  it('maps semantic accent aliases (blue/red/yellow/green)', () => {
+    const theme = THEMES.default;
+    expect(resolveColor('blue', theme)).toEqual(theme.accent1);
+    expect(resolveColor('red', theme)).toEqual(theme.accent2);
+    expect(resolveColor('yellow', theme)).toEqual(theme.accent3);
+    expect(resolveColor('green', theme)).toEqual(theme.accent4);
+  });
+
+  it('passes RGB objects through unchanged', () => {
+    const rgb = { red: 0.1, green: 0.2, blue: 0.3 };
+    expect(resolveColor(rgb, THEMES.default)).toBe(rgb);
+  });
+
+  it('returns undefined for unknown aliases or empty input', () => {
+    expect(resolveColor('not-a-color', THEMES.default)).toBeUndefined();
+    expect(resolveColor(undefined, THEMES.default)).toBeUndefined();
+  });
+
+  it('ships exactly the default and dark themes', () => {
+    expect(Object.keys(THEMES).sort()).toEqual(['dark', 'default']);
   });
 });

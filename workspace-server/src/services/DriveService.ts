@@ -639,4 +639,195 @@ export class DriveService {
       };
     }
   };
+
+  /**
+   * Upload a local file to Drive. The file is PRIVATE — no sharing is granted.
+   * To make it fetchable by the Slides API (or any other public consumer), call
+   * drive.addPublicAccess separately, then drive.removePublicAccess when done.
+   */
+  public uploadFile = async ({
+    localPath,
+    name,
+    mimeType,
+    parentId,
+  }: {
+    localPath: string;
+    name?: string;
+    mimeType?: string;
+    parentId?: string;
+  }) => {
+    logToFile(`Uploading file from ${localPath}`);
+    try {
+      const drive = await this.getDriveClient();
+
+      const absolutePath = path.isAbsolute(localPath)
+        ? localPath
+        : path.join(PROJECT_ROOT, localPath);
+
+      if (!fs.existsSync(absolutePath)) {
+        return this.handleError(
+          'drive.uploadFile',
+          new Error(`File not found: ${absolutePath}`),
+        );
+      }
+
+      const fileName = name ?? path.basename(absolutePath);
+      const fileMime = mimeType ?? 'application/octet-stream';
+
+      const fileMetadata: drive_v3.Schema$File = { name: fileName };
+      if (parentId) fileMetadata.parents = [parentId];
+
+      const file = await drive.files.create({
+        requestBody: fileMetadata,
+        media: { mimeType: fileMime, body: fs.createReadStream(absolutePath) },
+        fields: 'id, name, webViewLink',
+        supportsAllDrives: true,
+      });
+
+      const fileId = file.data.id!;
+      logToFile(`Uploaded ${fileName} → ${fileId} (private)`);
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              id: fileId,
+              name: file.data.name,
+              webViewLink: file.data.webViewLink,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      return this.handleError('drive.uploadFile', error);
+    }
+  };
+
+  /**
+   * Grant anyone:reader on a file and return a public image URL suitable for the
+   * Slides API server-side fetch. On Workspace domains where org policy blocks
+   * public sharing, returns a structured, actionable error instead of an opaque
+   * permissions string.
+   */
+  public addPublicAccess = async ({ fileId }: { fileId: string }) => {
+    logToFile(`Granting anyone:reader on Drive file: ${fileId}`);
+    try {
+      const drive = await this.getDriveClient();
+      const id = extractDocumentId(fileId);
+      const perm = await drive.permissions.create({
+        fileId: id,
+        supportsAllDrives: true,
+        requestBody: { role: 'reader', type: 'anyone' },
+        fields: 'id',
+      });
+      // lh3 is reliably fetchable by the Slides API; the legacy
+      // uc?export=download form returns an HTML interstitial for larger files.
+      const imageUrl = `https://lh3.googleusercontent.com/d/${id}`;
+      logToFile(`Granted anyone:reader on ${id} (perm ${perm.data.id})`);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              id,
+              permissionId: perm.data.id,
+              imageUrl,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      const reason = this.getErrorReason(error);
+      if (
+        reason === 'publishOutNotPermitted' ||
+        reason === 'cannotShareOutsideDomain'
+      ) {
+        const message = error instanceof Error ? error.message : String(error);
+        logToFile(
+          `drive.addPublicAccess blocked by org policy (${reason}): ${message}`,
+        );
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                error: message,
+                reason,
+                hint: 'This Workspace domain blocks public link sharing. Host the image on a publicly reachable URL instead (e.g. a GCS signed URL) and pass that to slides.createFromJson.',
+              }),
+            },
+          ],
+        };
+      }
+      return this.handleError('drive.addPublicAccess', error);
+    }
+  };
+
+  /**
+   * Revoke every anyone:* permission on a file. Idempotent: each deletion is
+   * isolated so a mid-loop failure still reports which permissions were removed
+   * and which failed, keeping retries safe.
+   */
+  public removePublicAccess = async ({ fileId }: { fileId: string }) => {
+    logToFile(`Removing public access from Drive file: ${fileId}`);
+    try {
+      const drive = await this.getDriveClient();
+      const id = extractDocumentId(fileId);
+      const perms = await drive.permissions.list({
+        fileId: id,
+        supportsAllDrives: true,
+        fields: 'permissions(id,type,role)',
+      });
+      const anyonePerms = (perms.data.permissions ?? []).filter(
+        (p) => p.type === 'anyone',
+      );
+      const removed: string[] = [];
+      const failed: Array<{ permissionId: string; error: string }> = [];
+      for (const p of anyonePerms) {
+        if (!p.id) continue;
+        try {
+          await drive.permissions.delete({
+            fileId: id,
+            permissionId: p.id,
+            supportsAllDrives: true,
+          });
+          removed.push(p.id);
+        } catch (delError) {
+          failed.push({
+            permissionId: p.id,
+            error:
+              delError instanceof Error ? delError.message : String(delError),
+          });
+        }
+      }
+      logToFile(
+        `Revoked ${removed.length} anyone:* permission(s) on ${id} (${failed.length} failed)`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ id, removed, failed }),
+          },
+        ],
+      };
+    } catch (error) {
+      return this.handleError('drive.removePublicAccess', error);
+    }
+  };
+
+  /** Extract a Google API error `reason` code from a gaxios/googleapis error. */
+  private getErrorReason(error: unknown): string | undefined {
+    const e = error as {
+      errors?: Array<{ reason?: string }>;
+      response?: { data?: { error?: { errors?: Array<{ reason?: string }> } } };
+    };
+    return (
+      e?.errors?.[0]?.reason ??
+      e?.response?.data?.error?.errors?.[0]?.reason ??
+      undefined
+    );
+  }
 }
