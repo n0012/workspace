@@ -1975,6 +1975,46 @@ describe('SlidesService', () => {
       expect(kinds.filter((k: string) => k === 'createShape').length).toBe(1);
     });
 
+    it('should skip (not crash on) a text element with empty content', async () => {
+      mockSlidesAPI.presentations.batchUpdate.mockResolvedValue({
+        data: { replies: [{}] },
+      });
+
+      const result = await slidesService.createFromJson({
+        presentationId: 'pres-1',
+        slideJson: {
+          slides: [
+            {
+              elements: [
+                {
+                  type: 'text',
+                  content: 'real',
+                  position: { x: 0, y: 0, w: 100, h: 20 },
+                },
+                {
+                  type: 'text',
+                  content: '   ',
+                  position: { x: 0, y: 30, w: 100, h: 20 },
+                },
+              ],
+            },
+          ],
+        },
+      });
+
+      const response = JSON.parse(result.content[0].text);
+      expect(result.isError).toBeUndefined();
+      expect(response.warnings).toHaveLength(1);
+      expect(response.warnings[0].issue).toContain('empty content');
+      // exactly one text box created (the empty one is skipped, so no
+      // insertText/updateTextStyle "object has no text" failure)
+      const kinds =
+        mockSlidesAPI.presentations.batchUpdate.mock.calls[0][0].requestBody.requests.map(
+          (r: any) => Object.keys(r)[0],
+        );
+      expect(kinds.filter((k: string) => k === 'createShape').length).toBe(1);
+    });
+
     it('should delete the default slide only when isNewPresentation and "p" exists', async () => {
       mockSlidesAPI.presentations.batchUpdate.mockResolvedValue({
         data: { replies: [{}] },

@@ -1589,8 +1589,19 @@ export class SlidesService {
           },
         });
       } else if (el.type === 'text') {
-        const objId = getId('tx');
         const content = el.content || '';
+        // Skip empty text elements: an empty text box has no text, so the
+        // follow-up updateTextStyle would fail ("object has no text") and abort
+        // the batch. Warn and move on (common in raw LLM output).
+        if (!content.trim()) {
+          warnings.push({
+            slideIndex,
+            elementIndex,
+            issue: 'text element has empty content, skipped',
+          });
+          continue;
+        }
+        const objId = getId('tx');
 
         requests.push({
           createShape: {
