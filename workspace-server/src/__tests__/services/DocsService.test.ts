@@ -24,6 +24,7 @@ describe('DocsService', () => {
   let docsService: DocsService;
   let mockAuthManager: jest.Mocked<AuthManager>;
   let mockDocsAPI: any;
+  let mockDriveAPI: any;
 
   beforeEach(() => {
     // Clear all mocks before each test
@@ -43,8 +44,17 @@ describe('DocsService', () => {
       },
     };
 
+    // Create mock Drive API (used by the Markdown import tools)
+    mockDriveAPI = {
+      files: {
+        create: jest.fn(),
+        update: jest.fn(),
+      },
+    };
+
     // Mock the google constructors
     (google.docs as jest.Mock) = jest.fn().mockReturnValue(mockDocsAPI);
+    (google.drive as jest.Mock) = jest.fn().mockReturnValue(mockDriveAPI);
 
     // Create DocsService instance
     docsService = new DocsService(mockAuthManager);
@@ -57,6 +67,119 @@ describe('DocsService', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  describe('createFromMarkdown', () => {
+    it('creates a Google Doc from markdown via Drive conversion', async () => {
+      mockDriveAPI.files.create.mockResolvedValue({
+        data: {
+          id: 'new-doc-id',
+          name: 'My Doc',
+          webViewLink: 'https://docs.google.com/document/d/new-doc-id/edit',
+        },
+      });
+
+      const result = await docsService.createFromMarkdown({
+        markdown: '# Title\n\n- a\n- b',
+        name: 'My Doc',
+        parentId: 'folder-1',
+      });
+
+      expect(mockDriveAPI.files.create).toHaveBeenCalledTimes(1);
+      const arg = mockDriveAPI.files.create.mock.calls[0][0];
+      // Destination mimeType must be a Google Doc to trigger conversion...
+      expect(arg.requestBody.mimeType).toBe(
+        'application/vnd.google-apps.document',
+      );
+      expect(arg.requestBody.name).toBe('My Doc');
+      expect(arg.requestBody.parents).toEqual(['folder-1']);
+      // ...and the source media must be text/markdown.
+      expect(arg.media.mimeType).toBe('text/markdown');
+
+      const payload = JSON.parse(result.content[0].text);
+      expect(payload).toMatchObject({
+        documentId: 'new-doc-id',
+        title: 'My Doc',
+        webViewLink: 'https://docs.google.com/document/d/new-doc-id/edit',
+      });
+      expect(result.isError).toBeUndefined();
+    });
+
+    it('omits parents when parentId is not provided', async () => {
+      mockDriveAPI.files.create.mockResolvedValue({ data: { id: 'x' } });
+
+      await docsService.createFromMarkdown({ markdown: '# Hi', name: 'Doc' });
+
+      const arg = mockDriveAPI.files.create.mock.calls[0][0];
+      expect(arg.requestBody.parents).toBeUndefined();
+    });
+
+    it('returns an error result when the Drive API fails', async () => {
+      mockDriveAPI.files.create.mockRejectedValue(new Error('boom'));
+
+      const result = await docsService.createFromMarkdown({
+        markdown: '# Hi',
+        name: 'Doc',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text).error).toBe('boom');
+    });
+  });
+
+  describe('updateFromMarkdown', () => {
+    it('replaces an existing doc content in place, keeping the same id', async () => {
+      mockDriveAPI.files.update.mockResolvedValue({
+        data: {
+          id: 'doc-123',
+          name: 'Doc',
+          webViewLink: 'https://docs.google.com/document/d/doc-123/edit',
+          modifiedTime: '2026-07-01T00:00:00Z',
+        },
+      });
+
+      const result = await docsService.updateFromMarkdown({
+        documentId: 'doc-123',
+        markdown: '# Updated',
+      });
+
+      expect(mockDriveAPI.files.update).toHaveBeenCalledTimes(1);
+      const arg = mockDriveAPI.files.update.mock.calls[0][0];
+      expect(arg.fileId).toBe('doc-123');
+      expect(arg.media.mimeType).toBe('text/markdown');
+
+      const payload = JSON.parse(result.content[0].text);
+      expect(payload).toMatchObject({
+        documentId: 'doc-123',
+        modifiedTime: '2026-07-01T00:00:00Z',
+      });
+      expect(result.isError).toBeUndefined();
+    });
+
+    it('extracts the doc id from a full Docs URL', async () => {
+      mockDriveAPI.files.update.mockResolvedValue({ data: { id: 'doc-123' } });
+
+      await docsService.updateFromMarkdown({
+        documentId:
+          'https://docs.google.com/document/d/doc-123/edit?tab=t.0',
+        markdown: '# Updated',
+      });
+
+      const arg = mockDriveAPI.files.update.mock.calls[0][0];
+      expect(arg.fileId).toBe('doc-123');
+    });
+
+    it('returns an error result when the Drive API fails', async () => {
+      mockDriveAPI.files.update.mockRejectedValue(new Error('nope'));
+
+      const result = await docsService.updateFromMarkdown({
+        documentId: 'doc-123',
+        markdown: '# x',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text).error).toBe('nope');
+    });
   });
 
   describe('create', () => {

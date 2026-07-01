@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { google, docs_v1 } from 'googleapis';
+import { google, docs_v1, drive_v3 } from 'googleapis';
+import { Readable } from 'node:stream';
 import { AuthManager } from '../auth/AuthManager';
 import { logToFile } from '../utils/logger';
 import { extractDocId } from '../utils/IdUtils';
@@ -70,6 +71,124 @@ export class DocsService {
     const options = { ...gaxiosOptions, auth };
     return google.docs({ version: 'v1', ...options });
   }
+
+  private async getDriveClient(): Promise<drive_v3.Drive> {
+    const auth = await this.authManager.getAuthenticatedClient();
+    const options = { ...gaxiosOptions, auth };
+    return google.drive({ version: 'v3', ...options });
+  }
+
+  /**
+   * Create a new Google Doc from a Markdown string. Drive's native import
+   * (source mimeType text/markdown → destination application/vnd.google-apps.document)
+   * maps headings, bold/italic, links, tables, and nested lists cleanly — far
+   * higher fidelity than hand-built Docs API insert requests.
+   */
+  public createFromMarkdown = async ({
+    markdown,
+    name,
+    parentId,
+  }: {
+    markdown: string;
+    name: string;
+    parentId?: string;
+  }) => {
+    logToFile(`[DocsService] createFromMarkdown: ${name}`);
+    try {
+      const drive = await this.getDriveClient();
+      const requestBody: drive_v3.Schema$File = {
+        name,
+        mimeType: 'application/vnd.google-apps.document',
+      };
+      if (parentId) requestBody.parents = [parentId];
+
+      const res = await drive.files.create({
+        requestBody,
+        media: { mimeType: 'text/markdown', body: Readable.from(markdown) },
+        fields: 'id, name, webViewLink',
+        supportsAllDrives: true,
+      });
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              documentId: res.data.id,
+              title: res.data.name,
+              webViewLink: res.data.webViewLink,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logToFile(`Error during docs.createFromMarkdown: ${errorMessage}`);
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ error: errorMessage }),
+          },
+        ],
+      };
+    }
+  };
+
+  /**
+   * Replace an existing Google Doc's entire content from a Markdown string,
+   * keeping the same document ID and link. Uses the same clean Markdown→Doc
+   * conversion as createFromMarkdown.
+   */
+  public updateFromMarkdown = async ({
+    documentId,
+    markdown,
+  }: {
+    documentId: string;
+    markdown: string;
+  }) => {
+    logToFile(`[DocsService] updateFromMarkdown: ${documentId}`);
+    try {
+      const id = extractDocId(documentId) || documentId;
+      const drive = await this.getDriveClient();
+
+      const res = await drive.files.update({
+        fileId: id,
+        media: { mimeType: 'text/markdown', body: Readable.from(markdown) },
+        fields: 'id, name, webViewLink, modifiedTime',
+        supportsAllDrives: true,
+      });
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              documentId: res.data.id,
+              title: res.data.name,
+              webViewLink: res.data.webViewLink,
+              modifiedTime: res.data.modifiedTime,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logToFile(`Error during docs.updateFromMarkdown: ${errorMessage}`);
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ error: errorMessage }),
+          },
+        ],
+      };
+    }
+  };
 
   public getSuggestions = async ({ documentId }: { documentId: string }) => {
     logToFile(

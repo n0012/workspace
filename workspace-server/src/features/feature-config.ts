@@ -38,8 +38,8 @@ export type ServiceName =
 export interface FeatureGroup {
   /** Service name (e.g., 'docs', 'gmail') */
   readonly service: ServiceName;
-  /** Group type: read (no side effects) or write (mutations) */
-  readonly group: 'read' | 'write';
+  /** Group type: read (no side effects), write (mutations), or a named capability group */
+  readonly group: 'read' | 'write' | 'markdown';
   /** OAuth scopes required by this feature group */
   readonly scopes: readonly string[];
   /** Tool names belonging to this feature group */
@@ -74,6 +74,15 @@ export const FEATURE_GROUPS: readonly FeatureGroup[] = [
       'docs.replaceText',
       'docs.formatText',
     ],
+    defaultEnabled: true,
+  },
+  {
+    // Markdown import runs through the Drive API (files.create/update with a
+    // text/markdown body converted to a Google Doc), so it needs the drive scope.
+    service: 'docs',
+    group: 'markdown',
+    scopes: scopes('drive'),
+    tools: ['docs.createFromMarkdown', 'docs.updateFromMarkdown'],
     defaultEnabled: true,
   },
 

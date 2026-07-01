@@ -331,6 +331,46 @@ async function main() {
   );
 
   registerTool(
+    'docs.createFromMarkdown',
+    {
+      description:
+        'Creates a new, fully-formatted Google Doc from a Markdown string. Drive natively converts the Markdown — headings, bold/italic, links, tables, and nested lists all map cleanly (far higher fidelity than hand-built insert requests). Returns documentId and webViewLink.',
+      inputSchema: {
+        markdown: z
+          .string()
+          .describe('The Markdown content to convert into the Google Doc.'),
+        name: z.string().describe('The title/name for the new Google Doc.'),
+        parentId: z
+          .string()
+          .optional()
+          .describe(
+            'Optional Drive folder ID to create the doc in. Defaults to root My Drive.',
+          ),
+      },
+    },
+    docsService.createFromMarkdown,
+  );
+
+  registerTool(
+    'docs.updateFromMarkdown',
+    {
+      description:
+        "Replaces an existing Google Doc's entire content from a Markdown string (same clean Markdown→Doc conversion), keeping the same document ID and link. Use to refresh a doc previously created from Markdown.",
+      inputSchema: {
+        documentId: z
+          .string()
+          .describe('The ID or URL of the Google Doc to overwrite.'),
+        markdown: z
+          .string()
+          .describe(
+            'The new Markdown content; fully replaces the current document body.',
+          ),
+      },
+    },
+    docsService.updateFromMarkdown,
+  );
+
+  registerTool(
     'drive.findFolder',
     {
       description: 'Finds a folder by name in Google Drive.',
