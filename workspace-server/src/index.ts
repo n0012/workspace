@@ -420,6 +420,25 @@ async function main() {
   );
 
   registerTool(
+    'docs.getInlineImages',
+    {
+      description:
+        "Returns every inline image in a Google Doc, in document order, as an array of { objectId, contentUri, altTitle, altDescription }. The contentUri is a temporary googleusercontent.com URL fetchable by other Google services (e.g. the Slides API image fetcher) WITHOUT public link sharing on the source Doc. contentUri is short-lived — consume it promptly.",
+      inputSchema: {
+        documentId: z.string().describe('The ID of the document to read.'),
+        tabId: z
+          .string()
+          .optional()
+          .describe(
+            'The ID of the tab to read. If not provided, reads the first tab.',
+          ),
+      },
+      ...readOnlyToolProps,
+    },
+    docsService.getInlineImages,
+  );
+
+  registerTool(
     'docs.replaceText',
     {
       description:
@@ -1310,12 +1329,18 @@ async function main() {
           .string()
           .optional()
           .describe(
-            'MIME type of the file (e.g. "image/png"). Defaults to application/octet-stream.',
+            'MIME type of the file (e.g. "image/png"). Defaults to application/octet-stream. When converting, this is the SOURCE type (e.g. application/vnd.openxmlformats-officedocument.wordprocessingml.document for .docx).',
           ),
         parentId: z
           .string()
           .optional()
           .describe('Drive folder ID to upload into. Defaults to root.'),
+        convertToGoogleType: z
+          .string()
+          .optional()
+          .describe(
+            'Optional target native Google MIME type to convert the upload into (e.g. "application/vnd.google-apps.document" to import a .docx as a native Google Doc). When set, Drive imports+converts the source (given by mimeType) into this type. Returns the converted file id, name, webViewLink, and mimeType.',
+          ),
       },
     },
     driveService.uploadFile,

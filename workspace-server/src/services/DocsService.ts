@@ -786,6 +786,102 @@ export class DocsService {
     }
   };
 
+  /**
+   * Returns every inline image in a Google Doc, IN DOCUMENT ORDER, as
+   * { objectId, contentUri, altTitle, altDescription }. The contentUri is a
+   * temporary googleusercontent.com URL the Docs API mints for each embedded
+   * image; it is fetchable by other Google services (e.g. the Slides API image
+   * fetcher) WITHOUT any public link sharing on the source Doc. Note: the
+   * contentUri is short-lived — consume it promptly.
+   */
+  public getInlineImages = async ({
+    documentId,
+    tabId,
+  }: {
+    documentId: string;
+    tabId?: string;
+  }) => {
+    logToFile(
+      `[DocsService] getInlineImages for document: ${documentId}, tabId: ${tabId}`,
+    );
+    try {
+      const id = validateAndExtractDocId(documentId);
+      const docs = await this.getDocsClient();
+      const res = await docs.documents.get({
+        documentId: id,
+        fields: 'tabs(tabProperties,documentTab(body,inlineObjects))',
+        includeTabsContent: true,
+      });
+
+      const tabs = this._flattenTabs(res.data.tabs || []);
+      if (tabs.length === 0) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify([]) }],
+        };
+      }
+
+      let tab: docs_v1.Schema$Tab | undefined;
+      if (tabId) {
+        tab = tabs.find((t) => t.tabProperties?.tabId === tabId);
+        if (!tab) {
+          throw new Error(`Tab with ID ${tabId} not found.`);
+        }
+      } else {
+        tab = tabs[0];
+      }
+
+      const inlineObjects = tab.documentTab?.inlineObjects || {};
+      const content = tab.documentTab?.body?.content || [];
+
+      const images: Array<{
+        objectId: string;
+        contentUri: string | null | undefined;
+        altTitle: string | null | undefined;
+        altDescription: string | null | undefined;
+      }> = [];
+
+      // Walk the body in document order, collecting inlineObjectElement refs,
+      // and map each back to its inlineObject entry for the embedded image.
+      for (const element of content) {
+        const paraElements = element.paragraph?.elements;
+        if (!paraElements) continue;
+        for (const pElement of paraElements) {
+          const inlineObjectId = pElement.inlineObjectElement?.inlineObjectId;
+          if (!inlineObjectId) continue;
+          const inlineObject = inlineObjects[inlineObjectId];
+          const embedded =
+            inlineObject?.inlineObjectProperties?.embeddedObject;
+          if (!embedded) continue;
+          // Only inline objects with imageProperties are images.
+          if (!embedded.imageProperties) continue;
+          images.push({
+            objectId: inlineObjectId,
+            contentUri: embedded.imageProperties.contentUri,
+            altTitle: embedded.title,
+            altDescription: embedded.description,
+          });
+        }
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(images) }],
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logToFile(`[DocsService] Error during docs.getInlineImages: ${errorMessage}`);
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ error: errorMessage }),
+          },
+        ],
+      };
+    }
+  };
+
   private _readStructuralElement(
     element: docs_v1.Schema$StructuralElement,
   ): string {

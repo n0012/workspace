@@ -1476,6 +1476,44 @@ describe('DriveService', () => {
       // No sharing is granted on upload.
       expect(mockDriveAPI.permissions.create).not.toHaveBeenCalled();
     });
+
+    it('should convert to a native Google type when convertToGoogleType is set', async () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      mockDriveAPI.files.create.mockResolvedValue({
+        data: {
+          id: 'doc-id',
+          name: 'spike-stage',
+          webViewLink: 'http://x',
+          mimeType: 'application/vnd.google-apps.document',
+        },
+      });
+
+      const result = await driveService.uploadFile({
+        localPath: '/tmp/spike.docx',
+        name: 'spike-stage',
+        mimeType:
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        convertToGoogleType: 'application/vnd.google-apps.document',
+      });
+      const response = JSON.parse(result.content[0].text);
+
+      // Destination (native) type goes on the file metadata; source Office
+      // type stays on the media body so Drive imports+converts the upload.
+      expect(mockDriveAPI.files.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestBody: expect.objectContaining({
+            name: 'spike-stage',
+            mimeType: 'application/vnd.google-apps.document',
+          }),
+          media: expect.objectContaining({
+            mimeType:
+              'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          }),
+        }),
+      );
+      expect(response.id).toBe('doc-id');
+      expect(response.mimeType).toBe('application/vnd.google-apps.document');
+    });
   });
 
   describe('addPublicAccess', () => {
