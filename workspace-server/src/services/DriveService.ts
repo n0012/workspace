@@ -650,11 +650,13 @@ export class DriveService {
     name,
     mimeType,
     parentId,
+    convertToGoogleType,
   }: {
     localPath: string;
     name?: string;
     mimeType?: string;
     parentId?: string;
+    convertToGoogleType?: string;
   }) => {
     logToFile(`Uploading file from ${localPath}`);
     try {
@@ -676,16 +678,24 @@ export class DriveService {
 
       const fileMetadata: drive_v3.Schema$File = { name: fileName };
       if (parentId) fileMetadata.parents = [parentId];
+      // When converting to a native Google type, set the destination mimeType on
+      // the file metadata while keeping the source (Office) mimeType on the media
+      // body. Drive then imports+converts the upload (e.g. .docx → Google Doc).
+      if (convertToGoogleType) fileMetadata.mimeType = convertToGoogleType;
 
       const file = await drive.files.create({
         requestBody: fileMetadata,
         media: { mimeType: fileMime, body: fs.createReadStream(absolutePath) },
-        fields: 'id, name, webViewLink',
+        fields: 'id, name, webViewLink, mimeType',
         supportsAllDrives: true,
       });
 
       const fileId = file.data.id!;
-      logToFile(`Uploaded ${fileName} → ${fileId} (private)`);
+      logToFile(
+        `Uploaded ${fileName} → ${fileId} (private)${
+          convertToGoogleType ? ` [converted to ${file.data.mimeType}]` : ''
+        }`,
+      );
 
       return {
         content: [
@@ -695,6 +705,7 @@ export class DriveService {
               id: fileId,
               name: file.data.name,
               webViewLink: file.data.webViewLink,
+              mimeType: file.data.mimeType,
             }),
           },
         ],
