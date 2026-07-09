@@ -79,23 +79,65 @@ export class DocsService {
   }
 
   /**
-   * Create a new Google Doc from a Markdown string. Drive's native import
-   * (source mimeType text/markdown → destination application/vnd.google-apps.document)
-   * maps headings, bold/italic, links, tables, and nested lists cleanly — far
-   * higher fidelity than hand-built Docs API insert requests.
+   * Create a new Google Doc from a Markdown string, or overwrite an existing
+   * one in place. Drive's native import (source mimeType text/markdown →
+   * destination application/vnd.google-apps.document) maps headings,
+   * bold/italic, links, tables, and nested lists cleanly — far higher fidelity
+   * than hand-built Docs API insert requests.
+   *
+   * Pass `documentId` to overwrite that doc (its ID and link are preserved);
+   * omit it to create a new doc titled `name` (optionally under `parentId`).
    */
-  public createFromMarkdown = async ({
+  public fromMarkdown = async ({
     markdown,
+    documentId,
     name,
     parentId,
   }: {
     markdown: string;
-    name: string;
+    documentId?: string;
+    name?: string;
     parentId?: string;
   }) => {
-    logToFile(`[DocsService] createFromMarkdown: ${name}`);
+    const mode = documentId ? 'update' : 'create';
+    logToFile(`[DocsService] fromMarkdown (${mode}): ${documentId || name}`);
     try {
       const drive = await this.getDriveClient();
+      const media = {
+        mimeType: 'text/markdown',
+        body: Readable.from(markdown),
+      };
+
+      // Update path: overwrite the existing doc, keeping its ID and link.
+      if (documentId) {
+        const id = extractDocId(documentId) || documentId;
+        const res = await drive.files.update({
+          fileId: id,
+          media,
+          fields: 'id, name, webViewLink, modifiedTime',
+          supportsAllDrives: true,
+        });
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                documentId: res.data.id,
+                title: res.data.name,
+                webViewLink: res.data.webViewLink,
+                modifiedTime: res.data.modifiedTime,
+              }),
+            },
+          ],
+        };
+      }
+
+      // Create path: a title is required for a brand-new doc.
+      if (!name) {
+        throw new Error(
+          'A `name` is required to create a new doc. Pass `documentId` to overwrite an existing doc instead.',
+        );
+      }
       const requestBody: drive_v3.Schema$File = {
         name,
         mimeType: 'application/vnd.google-apps.document',
@@ -104,7 +146,7 @@ export class DocsService {
 
       const res = await drive.files.create({
         requestBody,
-        media: { mimeType: 'text/markdown', body: Readable.from(markdown) },
+        media,
         fields: 'id, name, webViewLink',
         supportsAllDrives: true,
       });
@@ -124,60 +166,7 @@ export class DocsService {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      logToFile(`Error during docs.createFromMarkdown: ${errorMessage}`);
-      return {
-        isError: true,
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({ error: errorMessage }),
-          },
-        ],
-      };
-    }
-  };
-
-  /**
-   * Replace an existing Google Doc's entire content from a Markdown string,
-   * keeping the same document ID and link. Uses the same clean Markdown→Doc
-   * conversion as createFromMarkdown.
-   */
-  public updateFromMarkdown = async ({
-    documentId,
-    markdown,
-  }: {
-    documentId: string;
-    markdown: string;
-  }) => {
-    logToFile(`[DocsService] updateFromMarkdown: ${documentId}`);
-    try {
-      const id = extractDocId(documentId) || documentId;
-      const drive = await this.getDriveClient();
-
-      const res = await drive.files.update({
-        fileId: id,
-        media: { mimeType: 'text/markdown', body: Readable.from(markdown) },
-        fields: 'id, name, webViewLink, modifiedTime',
-        supportsAllDrives: true,
-      });
-
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              documentId: res.data.id,
-              title: res.data.name,
-              webViewLink: res.data.webViewLink,
-              modifiedTime: res.data.modifiedTime,
-            }),
-          },
-        ],
-      };
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      logToFile(`Error during docs.updateFromMarkdown: ${errorMessage}`);
+      logToFile(`Error during docs.fromMarkdown: ${errorMessage}`);
       return {
         isError: true,
         content: [

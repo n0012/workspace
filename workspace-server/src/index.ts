@@ -331,43 +331,35 @@ async function main() {
   );
 
   registerTool(
-    'docs.createFromMarkdown',
+    'docs.fromMarkdown',
     {
       description:
-        'Creates a new, fully-formatted Google Doc from a Markdown string. Drive natively converts the Markdown — headings, bold/italic, links, tables, and nested lists all map cleanly (far higher fidelity than hand-built insert requests). Returns documentId and webViewLink.',
+        'Create a Google Doc from a Markdown string, or overwrite an existing one in place. Drive natively converts the Markdown — headings, bold/italic, links, tables, and nested lists all map cleanly (far higher fidelity than hand-built insert requests). Pass documentId to overwrite that doc (its ID and link are kept); omit it to create a new doc titled name. Returns documentId and webViewLink.',
       inputSchema: {
         markdown: z
           .string()
           .describe('The Markdown content to convert into the Google Doc.'),
-        name: z.string().describe('The title/name for the new Google Doc.'),
+        documentId: z
+          .string()
+          .optional()
+          .describe(
+            'ID or URL of an existing doc to overwrite in place. Omit to create a new doc.',
+          ),
+        name: z
+          .string()
+          .optional()
+          .describe(
+            'Title for the new doc. Required when creating (i.e. when documentId is omitted); ignored when updating.',
+          ),
         parentId: z
           .string()
           .optional()
           .describe(
-            'Optional Drive folder ID to create the doc in. Defaults to root My Drive.',
+            'Optional Drive folder ID for the new doc. Defaults to root My Drive; ignored when updating.',
           ),
       },
     },
-    docsService.createFromMarkdown,
-  );
-
-  registerTool(
-    'docs.updateFromMarkdown',
-    {
-      description:
-        "Replaces an existing Google Doc's entire content from a Markdown string (same clean Markdown→Doc conversion), keeping the same document ID and link. Use to refresh a doc previously created from Markdown.",
-      inputSchema: {
-        documentId: z
-          .string()
-          .describe('The ID or URL of the Google Doc to overwrite.'),
-        markdown: z
-          .string()
-          .describe(
-            'The new Markdown content; fully replaces the current document body.',
-          ),
-      },
-    },
-    docsService.updateFromMarkdown,
+    docsService.fromMarkdown,
   );
 
   registerTool(
@@ -423,7 +415,7 @@ async function main() {
     'docs.getInlineImages',
     {
       description:
-        "Returns every inline image in a Google Doc, in document order, as an array of { objectId, contentUri, altTitle, altDescription }. The contentUri is a temporary googleusercontent.com URL fetchable by other Google services (e.g. the Slides API image fetcher) WITHOUT public link sharing on the source Doc. contentUri is short-lived — consume it promptly.",
+        'Returns each inline image in a Google Doc as { objectId, contentUri, altTitle, altDescription }. contentUri is a temporary googleusercontent.com URL that Google services can fetch without public sharing on the Doc — it is short-lived, so consume it promptly.',
       inputSchema: {
         documentId: z.string().describe('The ID of the document to read.'),
         tabId: z
@@ -1054,7 +1046,7 @@ async function main() {
     'slides.createFromJson',
     {
       description:
-        'Creates one or more slides from a JSON blueprint and appends them to a presentation. Speaker notes in the blueprint are written automatically.\n\nFORMATS: {"slides":[{"elements":[...],"speaker_notes":"..."},...]} for multiple slides, or {"elements":[...]} for a single slide.\n\nCANVAS: 720×405 pt (16:9), origin top-left.\n\nELEMENT TYPES: type ("text"|"shape"|"image"), position ({x,y,w,h} in points), optional content, shape_type, url (images), layer (z-index; lower renders first — backgrounds=0, boxes=1, text=2+).\n\nCOLORS: use a built-in alias ("primary", "secondary", "surface", "surface_alt", "text", "text_muted", "background", or accent aliases "blue"/"red"/"yellow"/"green") OR an explicit RGB 0-1 object for one-off colors. Aliases resolve against a single neutral built-in palette; for a branded look set explicit font_family/colors. font_family:"theme" inherits the built-in font.\n\nSPEAKER NOTES (strongly recommended): include "speaker_notes" on each slide and they are written automatically. If omitted, the response returns an action_required hint asking you to call slides.updateSpeakerNotes per slide.\n\nNEW DECKS: when you just created the presentation with slides.create, pass isNewPresentation:true to remove the default blank first slide. When appending to an existing deck, leave it false so nothing is deleted.\n\nSTYLE PROPERTIES: size, bold, italic, underline, strikethrough, align (START|CENTER|END), vertical_align (TOP|MIDDLE|BOTTOM), indent, color, bg_color, border_color, border_weight, no_border, font_family ("theme" to inherit), bold_phrases, bold_until, links ([{text,url}]). font_family defaults to the active theme font. Image URLs containing unresolved placeholders are replaced with a fallback icon and reported under "warnings".',
+        'Creates one or more slides from a JSON blueprint and appends them to a presentation; speaker notes in the blueprint are written automatically. Element and style fields are documented in the slideJson schema — see the presentation skill for layout guidance.\n\nFORMATS: {"slides":[{"elements":[...],"speaker_notes":"..."}]} for multiple slides, or {"elements":[...]} for one. Canvas is 720×405 pt (16:9), origin top-left.\n\nCOLORS: any color field accepts a built-in alias ("primary", "secondary", "surface", "surface_alt", "text", "text_muted", "background", or accents "blue"/"red"/"yellow"/"green") or an explicit RGB 0-1 object; font_family:"theme" inherits the built-in font.\n\nSpeaker notes are strongly recommended per slide (omitting them returns an action_required hint to call slides.updateSpeakerNotes). Pass isNewPresentation:true only for a brand-new deck to drop its default blank slide. Image URLs with unresolved placeholders are replaced with a fallback icon and reported under "warnings".',
       inputSchema: {
         presentationId: z
           .string()

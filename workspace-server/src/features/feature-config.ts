@@ -82,7 +82,7 @@ export const FEATURE_GROUPS: readonly FeatureGroup[] = [
     service: 'docs',
     group: 'markdown',
     scopes: scopes('drive'),
-    tools: ['docs.createFromMarkdown', 'docs.updateFromMarkdown'],
+    tools: ['docs.fromMarkdown'],
     defaultEnabled: true,
   },
 

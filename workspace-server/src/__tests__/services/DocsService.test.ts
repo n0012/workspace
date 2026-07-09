@@ -69,7 +69,8 @@ describe('DocsService', () => {
     jest.restoreAllMocks();
   });
 
-  describe('createFromMarkdown', () => {
+  describe('fromMarkdown', () => {
+    // Create path (no documentId)
     it('creates a Google Doc from markdown via Drive conversion', async () => {
       mockDriveAPI.files.create.mockResolvedValue({
         data: {
@@ -79,7 +80,7 @@ describe('DocsService', () => {
         },
       });
 
-      const result = await docsService.createFromMarkdown({
+      const result = await docsService.fromMarkdown({
         markdown: '# Title\n\n- a\n- b',
         name: 'My Doc',
         parentId: 'folder-1',
@@ -108,16 +109,25 @@ describe('DocsService', () => {
     it('omits parents when parentId is not provided', async () => {
       mockDriveAPI.files.create.mockResolvedValue({ data: { id: 'x' } });
 
-      await docsService.createFromMarkdown({ markdown: '# Hi', name: 'Doc' });
+      await docsService.fromMarkdown({ markdown: '# Hi', name: 'Doc' });
 
       const arg = mockDriveAPI.files.create.mock.calls[0][0];
       expect(arg.requestBody.parents).toBeUndefined();
     });
 
-    it('returns an error result when the Drive API fails', async () => {
+    it('errors when creating without a name (and no documentId)', async () => {
+      const result = await docsService.fromMarkdown({ markdown: '# Hi' });
+
+      expect(mockDriveAPI.files.create).not.toHaveBeenCalled();
+      expect(mockDriveAPI.files.update).not.toHaveBeenCalled();
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text).error).toMatch(/name.*required/i);
+    });
+
+    it('returns an error result when create fails', async () => {
       mockDriveAPI.files.create.mockRejectedValue(new Error('boom'));
 
-      const result = await docsService.createFromMarkdown({
+      const result = await docsService.fromMarkdown({
         markdown: '# Hi',
         name: 'Doc',
       });
@@ -125,10 +135,9 @@ describe('DocsService', () => {
       expect(result.isError).toBe(true);
       expect(JSON.parse(result.content[0].text).error).toBe('boom');
     });
-  });
 
-  describe('updateFromMarkdown', () => {
-    it('replaces an existing doc content in place, keeping the same id', async () => {
+    // Update path (documentId provided)
+    it('overwrites an existing doc in place, keeping the same id', async () => {
       mockDriveAPI.files.update.mockResolvedValue({
         data: {
           id: 'doc-123',
@@ -138,12 +147,13 @@ describe('DocsService', () => {
         },
       });
 
-      const result = await docsService.updateFromMarkdown({
+      const result = await docsService.fromMarkdown({
         documentId: 'doc-123',
         markdown: '# Updated',
       });
 
       expect(mockDriveAPI.files.update).toHaveBeenCalledTimes(1);
+      expect(mockDriveAPI.files.create).not.toHaveBeenCalled();
       const arg = mockDriveAPI.files.update.mock.calls[0][0];
       expect(arg.fileId).toBe('doc-123');
       expect(arg.media.mimeType).toBe('text/markdown');
@@ -156,10 +166,10 @@ describe('DocsService', () => {
       expect(result.isError).toBeUndefined();
     });
 
-    it('extracts the doc id from a full Docs URL', async () => {
+    it('extracts the doc id from a full Docs URL when updating', async () => {
       mockDriveAPI.files.update.mockResolvedValue({ data: { id: 'doc-123' } });
 
-      await docsService.updateFromMarkdown({
+      await docsService.fromMarkdown({
         documentId:
           'https://docs.google.com/document/d/doc-123/edit?tab=t.0',
         markdown: '# Updated',
@@ -169,10 +179,10 @@ describe('DocsService', () => {
       expect(arg.fileId).toBe('doc-123');
     });
 
-    it('returns an error result when the Drive API fails', async () => {
+    it('returns an error result when update fails', async () => {
       mockDriveAPI.files.update.mockRejectedValue(new Error('nope'));
 
-      const result = await docsService.updateFromMarkdown({
+      const result = await docsService.fromMarkdown({
         documentId: 'doc-123',
         markdown: '# x',
       });
