@@ -90,8 +90,38 @@ describe('ChatService', () => {
 
       const result = await chatService.listSpaces();
 
-      expect(mockChatAPI.spaces.list).toHaveBeenCalledWith({});
+      expect(mockChatAPI.spaces.list).toHaveBeenCalledWith({
+        pageSize: 1000,
+        pageToken: undefined,
+      });
       expect(JSON.parse(result.content[0].text)).toEqual(mockSpaces);
+    });
+
+    it('should follow nextPageToken and concatenate all pages', async () => {
+      const page1 = [{ name: 'spaces/s1', displayName: '[P1] 111 - A' }];
+      const page2 = [{ name: 'spaces/s2', displayName: '[P2] 222 - B' }];
+
+      mockChatAPI.spaces.list
+        .mockResolvedValueOnce({
+          data: { spaces: page1, nextPageToken: 'tok2' },
+        })
+        .mockResolvedValueOnce({ data: { spaces: page2 } });
+
+      const result = await chatService.listSpaces();
+
+      expect(mockChatAPI.spaces.list).toHaveBeenCalledTimes(2);
+      expect(mockChatAPI.spaces.list).toHaveBeenNthCalledWith(1, {
+        pageSize: 1000,
+        pageToken: undefined,
+      });
+      expect(mockChatAPI.spaces.list).toHaveBeenNthCalledWith(2, {
+        pageSize: 1000,
+        pageToken: 'tok2',
+      });
+      expect(JSON.parse(result.content[0].text)).toEqual([
+        ...page1,
+        ...page2,
+      ]);
     });
 
     it('should handle empty spaces list', async () => {
