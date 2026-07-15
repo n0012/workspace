@@ -64,9 +64,31 @@ export class ChatService {
     logToFile('Listing chat spaces');
     try {
       const chat = await this.getChatClient();
-      const res = await chat.spaces.list({});
-      const spaces = res.data.spaces || [];
-      logToFile(`Successfully listed ${spaces.length} chat spaces.`);
+      // Page through ALL spaces. The API caps a single page at 1000 (default
+      // ~100), so without following nextPageToken the caller silently sees only
+      // the first page — which made CaseChat per-case spaces beyond that page
+      // invisible to the case-story dashboard. Loop until the token is
+      // exhausted, with a generous backstop to bound a pathological account.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const spaces: any[] = [];
+      let pageToken: string | undefined = undefined;
+      let pages = 0;
+      const MAX_PAGES = 50; // 50 * 1000 = up to 50k spaces
+      do {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const res: any = await chat.spaces.list({ pageSize: 1000, pageToken });
+        if (res.data.spaces) spaces.push(...res.data.spaces);
+        pageToken = res.data.nextPageToken || undefined;
+        pages++;
+      } while (pageToken && pages < MAX_PAGES);
+      if (pageToken) {
+        logToFile(
+          `WARNING: chat.listSpaces hit the ${MAX_PAGES}-page backstop; some spaces may be unlisted.`,
+        );
+      }
+      logToFile(
+        `Successfully listed ${spaces.length} chat spaces across ${pages} page(s).`,
+      );
       return {
         content: [
           {
