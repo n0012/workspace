@@ -191,13 +191,13 @@ npm run auth-utils -- <command>
 If you are running the server in an environment without a browser (SSH, WSL,
 Cloud Shell, VMs), authentication requires manual steps:
 
-1. Run the login tool:
+1. Run the login tool (on Linux/SSH/Cloudtop, specify `GEMINI_CLI_WORKSPACE_FORCE_FILE_STORAGE=true` to prevent keychain/D-Bus hangs):
    ```bash
-   npm run auth-utils -- login
+   GEMINI_CLI_WORKSPACE_FORCE_FILE_STORAGE=true npm run auth-utils -- login
    ```
    Or, from the `workspace-server` directory:
    ```bash
-   node dist/headless-login.js
+   GEMINI_CLI_WORKSPACE_FORCE_FILE_STORAGE=true node dist/headless-login.js
    ```
 2. Open the printed OAuth URL in any browser (your local machine, phone, etc.).
 3. Complete Google sign-in. The browser will display a credentials JSON block.

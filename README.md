@@ -60,8 +60,10 @@ If you're using the extension over SSH, WSL, Cloud Shell, or another environment
 without a local browser, you can authenticate using the headless login tool:
 
 ```bash
-npm run auth-utils -- login
+GEMINI_CLI_WORKSPACE_FORCE_FILE_STORAGE=true npm run auth-utils -- login
 ```
+
+*(Setting `GEMINI_CLI_WORKSPACE_FORCE_FILE_STORAGE=true` avoids OS keychain/D-Bus hangs on headless Linux).*
 
 This prints an OAuth URL you can open in any browser (local machine, phone,
 etc.). After signing in, paste the credentials JSON into the CLI. Credentials
