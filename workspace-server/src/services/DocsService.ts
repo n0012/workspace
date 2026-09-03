@@ -944,54 +944,30 @@ export class DocsService {
       const id = extractDocId(documentId) || documentId;
       const docs = await this.getDocsClient();
 
-      // Get the document to find where the text will be replaced
-      const docBefore = await docs.documents.get({
-        documentId: id,
-        fields: TABS_FIELD_MASK,
-        includeTabsContent: true,
-      });
-
-      const tabs = this._flattenTabs(docBefore.data.tabs || []);
-
-      const requests: docs_v1.Schema$Request[] = [];
+      const replaceAllTextReq: docs_v1.Schema$ReplaceAllTextRequest = {
+        containsText: {
+          text: findText,
+          matchCase: true,
+        },
+        replaceText,
+      };
 
       if (tabId) {
-        const tab = tabs.find((t) => t.tabProperties?.tabId === tabId);
-        if (!tab) {
-          throw new Error(`Tab with ID ${tabId} not found.`);
-        }
-        const content = tab.documentTab?.body?.content;
-
-        const tabRequests = this._generateReplacementRequests(
-          content,
-          tabId,
-          findText,
-          replaceText,
-        );
-        requests.push(...tabRequests);
-      } else {
-        for (const tab of tabs) {
-          const currentTabId = tab.tabProperties?.tabId;
-          const content = tab.documentTab?.body?.content;
-
-          const tabRequests = this._generateReplacementRequests(
-            content,
-            currentTabId,
-            findText,
-            replaceText,
-          );
-          requests.push(...tabRequests);
-        }
+        replaceAllTextReq.tabsCriteria = {
+          tabIds: [tabId],
+        };
       }
 
-      if (requests.length > 0) {
-        await docs.documents.batchUpdate({
-          documentId: id,
-          requestBody: {
-            requests,
-          },
-        });
-      }
+      await docs.documents.batchUpdate({
+        documentId: id,
+        requestBody: {
+          requests: [
+            {
+              replaceAllText: replaceAllTextReq,
+            },
+          ],
+        },
+      });
 
       logToFile(`[DocsService] Finished replaceText for document: ${id}`);
       return {
@@ -1017,64 +993,4 @@ export class DocsService {
     }
   };
 
-  private _generateReplacementRequests(
-    content: docs_v1.Schema$StructuralElement[] | undefined,
-    tabId: string | undefined | null,
-    findText: string,
-    newText: string,
-  ): docs_v1.Schema$Request[] {
-    const requests: docs_v1.Schema$Request[] = [];
-    const documentText = this._getFullDocumentText(content);
-    const occurrences: number[] = [];
-    let searchIndex = 0;
-    while ((searchIndex = documentText.indexOf(findText, searchIndex)) !== -1) {
-      occurrences.push(searchIndex + 1);
-      searchIndex += findText.length;
-    }
-
-    const lengthDiff = newText.length - findText.length;
-    let cumulativeOffset = 0;
-
-    for (let i = 0; i < occurrences.length; i++) {
-      const occurrence = occurrences[i];
-      const adjustedPosition = occurrence + cumulativeOffset;
-
-      // Delete old text
-      requests.push({
-        deleteContentRange: {
-          range: {
-            tabId: tabId,
-            startIndex: adjustedPosition,
-            endIndex: adjustedPosition + findText.length,
-          },
-        },
-      });
-
-      // Insert new text
-      requests.push({
-        insertText: {
-          location: {
-            tabId: tabId,
-            index: adjustedPosition,
-          },
-          text: newText,
-        },
-      });
-
-      cumulativeOffset += lengthDiff;
-    }
-    return requests;
-  }
-
-  private _getFullDocumentText(
-    content: docs_v1.Schema$StructuralElement[] | undefined,
-  ): string {
-    let text = '';
-    if (content) {
-      content.forEach((element) => {
-        text += this._readStructuralElement(element);
-      });
-    }
-    return text;
-  }
 }

@@ -982,35 +982,17 @@ describe('DocsService', () => {
         replaceText: 'Hi',
       });
 
-      expect(mockDocsAPI.documents.get).toHaveBeenCalledWith({
-        documentId: 'test-doc-id',
-        fields: TABS_FIELD_MASK,
-        includeTabsContent: true,
-      });
-
       expect(mockDocsAPI.documents.batchUpdate).toHaveBeenCalledWith({
         documentId: 'test-doc-id',
         requestBody: {
-          requests: expect.arrayContaining([
-            expect.objectContaining({
-              deleteContentRange: {
-                range: {
-                  tabId: undefined,
-                  startIndex: 1,
-                  endIndex: 6,
-                },
+          requests: [
+            {
+              replaceAllText: {
+                containsText: { text: 'Hello', matchCase: true },
+                replaceText: 'Hi',
               },
-            }),
-            expect.objectContaining({
-              insertText: {
-                location: {
-                  tabId: undefined,
-                  index: 1,
-                },
-                text: 'Hi',
-              },
-            }),
-          ]),
+            },
+          ],
         },
       });
       expect(result.content[0].text).toBe(
@@ -1059,53 +1041,15 @@ describe('DocsService', () => {
         replaceText: '**bold text**',
       });
 
-      expect(mockDocsAPI.documents.get).toHaveBeenCalledWith({
-        documentId: 'test-doc-id',
-        fields: TABS_FIELD_MASK,
-        includeTabsContent: true,
-      });
-
       // Text is inserted literally — no markdown parsing
       expect(mockDocsAPI.documents.batchUpdate).toHaveBeenCalledWith({
         documentId: 'test-doc-id',
         requestBody: {
           requests: [
-            // First occurrence
             {
-              deleteContentRange: {
-                range: {
-                  tabId: undefined,
-                  startIndex: 9,
-                  endIndex: 18,
-                },
-              },
-            },
-            {
-              insertText: {
-                location: {
-                  tabId: undefined,
-                  index: 9,
-                },
-                text: '**bold text**',
-              },
-            },
-            // Second occurrence (offset by length diff: 13 - 9 = +4)
-            {
-              deleteContentRange: {
-                range: {
-                  tabId: undefined,
-                  startIndex: 27,
-                  endIndex: 36,
-                },
-              },
-            },
-            {
-              insertText: {
-                location: {
-                  tabId: undefined,
-                  index: 27,
-                },
-                text: '**bold text**',
+              replaceAllText: {
+                containsText: { text: 'this text', matchCase: true },
+                replaceText: '**bold text**',
               },
             },
           ],
@@ -1185,30 +1129,18 @@ describe('DocsService', () => {
         tabId: 'tab-1',
       });
 
-      // Should use deleteContentRange and insertText instead of replaceAllText
       expect(mockDocsAPI.documents.batchUpdate).toHaveBeenCalledWith({
         documentId: 'test-doc-id',
         requestBody: {
-          requests: expect.arrayContaining([
-            expect.objectContaining({
-              deleteContentRange: {
-                range: {
-                  tabId: 'tab-1',
-                  startIndex: 1,
-                  endIndex: 6,
-                },
+          requests: [
+            {
+              replaceAllText: {
+                containsText: { text: 'Hello', matchCase: true },
+                replaceText: 'Hi',
+                tabsCriteria: { tabIds: ['tab-1'] },
               },
-            }),
-            expect.objectContaining({
-              insertText: {
-                location: {
-                  tabId: 'tab-1',
-                  index: 1,
-                },
-                text: 'Hi',
-              },
-            }),
-          ]),
+            },
+          ],
         },
       });
     });
@@ -1267,26 +1199,15 @@ describe('DocsService', () => {
       expect(mockDocsAPI.documents.batchUpdate).toHaveBeenCalledWith({
         documentId: 'test-doc-id',
         requestBody: {
-          requests: expect.arrayContaining([
-            expect.objectContaining({
-              deleteContentRange: {
-                range: {
-                  tabId: 'child-tab',
-                  startIndex: 1,
-                  endIndex: 6,
-                },
+          requests: [
+            {
+              replaceAllText: {
+                containsText: { text: 'Hello', matchCase: true },
+                replaceText: 'Hi',
+                tabsCriteria: { tabIds: ['child-tab'] },
               },
-            }),
-            expect.objectContaining({
-              insertText: {
-                location: {
-                  tabId: 'child-tab',
-                  index: 1,
-                },
-                text: 'Hi',
-              },
-            }),
-          ]),
+            },
+          ],
         },
       });
     });
