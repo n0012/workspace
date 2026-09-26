@@ -534,9 +534,11 @@ export class DriveService {
   public downloadFile = async ({
     fileId,
     localPath,
+    exportMimeType,
   }: {
     fileId: string;
     localPath: string;
+    exportMimeType?: string;
   }) => {
     logToFile(`Downloading Drive file ${fileId} to ${localPath}`);
     try {
@@ -572,7 +574,16 @@ export class DriveService {
         },
       };
 
-      if (mimeType in googleWorkspaceFileMap) {
+      // Google-native files can't be downloaded as media, but they can be
+      // exported (e.g. a Doc as application/pdf, to render its real pages).
+      let buffer: Buffer;
+      if (exportMimeType && mimeType.includes('vnd.google-apps.')) {
+        const exported = await drive.files.export(
+          { fileId: id, mimeType: exportMimeType },
+          { responseType: 'arraybuffer' },
+        );
+        buffer = Buffer.from(exported.data as unknown as ArrayBuffer);
+      } else if (mimeType in googleWorkspaceFileMap) {
         const fileInfo = googleWorkspaceFileMap[mimeType];
         return {
           content: [
@@ -582,30 +593,27 @@ export class DriveService {
             },
           ],
         };
-      }
-
-      if (mimeType.includes('vnd.google-apps.')) {
+      } else if (mimeType.includes('vnd.google-apps.')) {
         return {
           content: [
             {
               type: 'text' as const,
-              text: `This is a Google Workspace file type (${mimeType}). Direct media download is not supported. Please use specific tools (docs.getText, slides.getText, etc.) or export it if supported.`,
+              text: `This is a Google Workspace file type (${mimeType}). Direct media download is not supported. Please use specific tools (docs.getText, slides.getText, etc.) or pass exportMimeType.`,
             },
           ],
         };
+      } else {
+        // 2. Download media
+        const response = await drive.files.get(
+          {
+            fileId: id,
+            alt: 'media',
+            supportsAllDrives: true,
+          },
+          { responseType: 'arraybuffer' },
+        );
+        buffer = Buffer.from(response.data as unknown as ArrayBuffer);
       }
-
-      // 2. Download media
-      const response = await drive.files.get(
-        {
-          fileId: id,
-          alt: 'media',
-          supportsAllDrives: true,
-        },
-        { responseType: 'arraybuffer' },
-      );
-
-      const buffer = Buffer.from(response.data as unknown as ArrayBuffer);
 
       // 3. Save to localPath
       const absolutePath = path.isAbsolute(localPath)

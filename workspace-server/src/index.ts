@@ -1245,6 +1245,12 @@ async function main() {
           .describe(
             'The local file path where the content should be saved (e.g., "downloads/report.pdf").',
           ),
+        exportMimeType: z
+          .string()
+          .optional()
+          .describe(
+            'For Google Docs/Sheets/Slides: export to this MIME type instead of refusing (e.g., "application/pdf").',
+          ),
       },
     },
     driveService.downloadFile,
