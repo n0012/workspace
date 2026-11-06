@@ -121,7 +121,9 @@ describe('DocsService', () => {
       expect(mockDriveAPI.files.create).not.toHaveBeenCalled();
       expect(mockDriveAPI.files.update).not.toHaveBeenCalled();
       expect(result.isError).toBe(true);
-      expect(JSON.parse(result.content[0].text).error).toMatch(/name.*required/i);
+      expect(JSON.parse(result.content[0].text).error).toMatch(
+        /name.*required/i,
+      );
     });
 
     it('returns an error result when create fails', async () => {
@@ -170,8 +172,7 @@ describe('DocsService', () => {
       mockDriveAPI.files.update.mockResolvedValue({ data: { id: 'doc-123' } });
 
       await docsService.fromMarkdown({
-        documentId:
-          'https://docs.google.com/document/d/doc-123/edit?tab=t.0',
+        documentId: 'https://docs.google.com/document/d/doc-123/edit?tab=t.0',
         markdown: '# Updated',
       });
 
@@ -388,6 +389,77 @@ describe('DocsService', () => {
 
       expect(JSON.parse(result.content[0].text)).toEqual({
         error: 'API Error',
+      });
+    });
+  });
+
+  describe('getStructure', () => {
+    it('returns the document JSON as the API gives it', async () => {
+      const doc = { title: 'T', body: { content: [{ startIndex: 1 }] } };
+      mockDocsAPI.documents.get.mockResolvedValue({ data: doc });
+
+      const result = await docsService.getStructure({ documentId: 'doc-id' });
+
+      expect(mockDocsAPI.documents.get).toHaveBeenCalledWith({
+        documentId: 'doc-id',
+      });
+      expect(JSON.parse(result.content[0].text)).toEqual(doc);
+    });
+
+    it('reports an API error instead of throwing', async () => {
+      mockDocsAPI.documents.get.mockRejectedValue(new Error('not found'));
+
+      const result = await docsService.getStructure({ documentId: 'doc-id' });
+
+      expect(JSON.parse(result.content[0].text)).toEqual({
+        error: 'not found',
+      });
+    });
+  });
+
+  describe('batchUpdate', () => {
+    it('passes the requests through in order and returns the replies', async () => {
+      const requests = [
+        { createFooter: { type: 'DEFAULT' } },
+        {
+          pinTableHeaderRows: {
+            tableStartLocation: { index: 5 },
+            pinnedHeaderRowsCount: 1,
+          },
+        },
+      ];
+      mockDocsAPI.documents.batchUpdate.mockResolvedValue({
+        data: { replies: [{ createFooter: { footerId: 'f1' } }, {}] },
+      });
+
+      const result = await docsService.batchUpdate({
+        documentId: 'doc-id',
+        requests,
+      });
+
+      expect(mockDocsAPI.documents.batchUpdate).toHaveBeenCalledWith({
+        documentId: 'doc-id',
+        requestBody: { requests },
+      });
+      expect(JSON.parse(result.content[0].text)).toEqual({
+        documentId: 'doc-id',
+        applied: 2,
+        replies: [{ createFooter: { footerId: 'f1' } }, {}],
+      });
+    });
+
+    it('reports an API error instead of throwing', async () => {
+      mockDocsAPI.documents.batchUpdate.mockRejectedValue(
+        new Error('Invalid requests[0]'),
+      );
+
+      const result = await docsService.batchUpdate({
+        documentId: 'doc-id',
+        requests: [{}],
+      });
+
+      expect(JSON.parse(result.content[0].text)).toEqual({
+        error: 'Invalid requests[0]',
       });
     });
   });

@@ -641,6 +641,86 @@ export class DocsService {
     }
   };
 
+  /**
+   * The document as the Docs API returns it, so a caller can compute the
+   * indices that batchUpdate needs (paragraph ranges, table locations).
+   */
+  public getStructure = async ({ documentId }: { documentId: string }) => {
+    logToFile(
+      `[DocsService] Starting getStructure for document: ${documentId}`,
+    );
+    try {
+      const id = validateAndExtractDocId(documentId);
+      const docs = await this.getDocsClient();
+      const res = await docs.documents.get({ documentId: id });
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(res.data) }],
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logToFile(
+        `[DocsService] Error during docs.getStructure: ${errorMessage}`,
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ error: errorMessage }),
+          },
+        ],
+      };
+    }
+  };
+
+  /**
+   * Raw Docs API batchUpdate, for what the narrower tools cannot do: named
+   * style changes, table cell shading, headers and footers, page numbers.
+   */
+  public batchUpdate = async ({
+    documentId,
+    requests,
+  }: {
+    documentId: string;
+    requests: docs_v1.Schema$Request[];
+  }) => {
+    logToFile(
+      `[DocsService] Starting batchUpdate for document: ${documentId}, ${requests.length} request(s)`,
+    );
+    try {
+      const id = validateAndExtractDocId(documentId);
+      const docs = await this.getDocsClient();
+      const res = await docs.documents.batchUpdate({
+        documentId: id,
+        requestBody: { requests },
+      });
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              documentId: id,
+              applied: requests.length,
+              replies: res.data.replies,
+            }),
+          },
+        ],
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logToFile(`[DocsService] Error during docs.batchUpdate: ${errorMessage}`);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ error: errorMessage }),
+          },
+        ],
+      };
+    }
+  };
+
   public getText = async ({
     documentId,
     tabId,
@@ -838,8 +918,7 @@ export class DocsService {
           const inlineObjectId = pElement.inlineObjectElement?.inlineObjectId;
           if (!inlineObjectId) continue;
           const inlineObject = inlineObjects[inlineObjectId];
-          const embedded =
-            inlineObject?.inlineObjectProperties?.embeddedObject;
+          const embedded = inlineObject?.inlineObjectProperties?.embeddedObject;
           if (!embedded) continue;
           // Only inline objects with imageProperties are images.
           if (!embedded.imageProperties) continue;
@@ -858,7 +937,9 @@ export class DocsService {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      logToFile(`[DocsService] Error during docs.getInlineImages: ${errorMessage}`);
+      logToFile(
+        `[DocsService] Error during docs.getInlineImages: ${errorMessage}`,
+      );
       return {
         isError: true,
         content: [
@@ -992,5 +1073,4 @@ export class DocsService {
       };
     }
   };
-
 }

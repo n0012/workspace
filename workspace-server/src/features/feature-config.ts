@@ -61,7 +61,12 @@ export const FEATURE_GROUPS: readonly FeatureGroup[] = [
     service: 'docs',
     group: 'read',
     scopes: scopes('documents'),
-    tools: ['docs.getSuggestions', 'docs.getText', 'docs.getInlineImages'],
+    tools: [
+      'docs.getSuggestions',
+      'docs.getText',
+      'docs.getInlineImages',
+      'docs.getStructure',
+    ],
     defaultEnabled: true,
   },
   {
@@ -73,6 +78,7 @@ export const FEATURE_GROUPS: readonly FeatureGroup[] = [
       'docs.writeText',
       'docs.replaceText',
       'docs.formatText',
+      'docs.batchUpdate',
     ],
     defaultEnabled: true,
   },

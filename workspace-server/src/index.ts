@@ -495,6 +495,34 @@ async function main() {
     docsService.formatText,
   );
 
+  registerTool(
+    'docs.getStructure',
+    {
+      description:
+        'Returns the full Google Docs API document JSON (body content with startIndex/endIndex, tables, named styles). Use it to compute ranges for docs.batchUpdate.',
+      inputSchema: {
+        documentId: z.string().describe('The ID of the document.'),
+      },
+      ...readOnlyToolProps,
+    },
+    docsService.getStructure,
+  );
+
+  registerTool(
+    'docs.batchUpdate',
+    {
+      description:
+        'Sends raw Google Docs API batchUpdate requests (updateParagraphStyle, updateTextStyle, updateTableCellStyle, createFooter, updateDocumentStyle, ...). For styling that docs.formatText cannot express.',
+      inputSchema: {
+        documentId: z.string().describe('The ID of the document to modify.'),
+        requests: z
+          .array(z.record(z.string(), z.any()))
+          .describe('Docs API Request objects, applied in order.'),
+      },
+    },
+    docsService.batchUpdate,
+  );
+
   // Slides tools
   registerTool(
     'slides.getText',
