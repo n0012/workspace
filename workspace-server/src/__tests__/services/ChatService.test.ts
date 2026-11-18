@@ -124,6 +124,27 @@ describe('ChatService', () => {
       ]);
     });
 
+    it('should stop paginating when nextPageToken repeats', async () => {
+      const page1 = [{ name: 'spaces/s1', displayName: 'Space 1' }];
+      const page2 = [{ name: 'spaces/s2', displayName: 'Space 2' }];
+
+      mockChatAPI.spaces.list
+        .mockResolvedValueOnce({
+          data: { spaces: page1, nextPageToken: 'tok-loop' },
+        })
+        .mockResolvedValueOnce({
+          data: { spaces: page2, nextPageToken: 'tok-loop' },
+        });
+
+      const result = await chatService.listSpaces();
+
+      expect(mockChatAPI.spaces.list).toHaveBeenCalledTimes(2);
+      expect(JSON.parse(result.content[0].text)).toEqual([
+        ...page1,
+        ...page2,
+      ]);
+    });
+
     it('should handle empty spaces list', async () => {
       mockChatAPI.spaces.list.mockResolvedValue({
         data: {

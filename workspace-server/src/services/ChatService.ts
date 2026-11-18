@@ -69,8 +69,8 @@ export class ChatService {
       // the first page — which made CaseChat per-case spaces beyond that page
       // invisible to the case-story dashboard. Loop until the token is
       // exhausted, with a generous backstop to bound a pathological account.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const spaces: any[] = [];
+      const spaces: chat_v1.Schema$Space[] = [];
+      const seenPageTokens = new Set<string>();
       let pageToken: string | undefined = undefined;
       let pages = 0;
       const MAX_PAGES = 50; // 50 * 1000 = up to 50k spaces
@@ -78,8 +78,22 @@ export class ChatService {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const res: any = await chat.spaces.list({ pageSize: 1000, pageToken });
         if (res.data.spaces) spaces.push(...res.data.spaces);
-        pageToken = res.data.nextPageToken || undefined;
+        const nextPageToken: string | undefined =
+          res.data.nextPageToken || undefined;
         pages++;
+        if (!nextPageToken) {
+          pageToken = undefined;
+          break;
+        }
+        if (seenPageTokens.has(nextPageToken)) {
+          logToFile(
+            `WARNING: Stopping chat.listSpaces pagination due to repeated pageToken after ${pages} page(s).`,
+          );
+          pageToken = undefined;
+          break;
+        }
+        seenPageTokens.add(nextPageToken);
+        pageToken = nextPageToken;
       } while (pageToken && pages < MAX_PAGES);
       if (pageToken) {
         logToFile(
